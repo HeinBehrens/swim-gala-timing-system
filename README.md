@@ -18,8 +18,12 @@ race event — it only does bookkeeping.
   (`onStartIsr()`), so the start instant is precise to the edge, not to when
   software got around to looking.
 - Start and finish are read from the **same monotonic clock**, so a race time is
-  simply `finish_µs − start_µs`. The ESP streams these stamps to the host over
-  USB serial (`PRESS\t…\tmicrosSinceBoot`); the host just subtracts.
+  simply `finish_µs − start_µs`. The ESP streams these stamps to the host as one
+  identical line (`PRESS\t…\tmicrosSinceBoot`) over **both transports** — USB
+  serial always, and **Wi-Fi TCP (port 3333, `swim-timer.local`)** when Wi-Fi is
+  provisioned. The host just subtracts. Because the stamp is taken on-chip before
+  either transport, it doesn't matter whether the line arrives over USB or Wi-Fi
+  — neither path can affect the timing.
 
 ### Why this beats timing on the host (macOS)
 
@@ -44,8 +48,8 @@ not cancel and shows up as timing error.
 
 - **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v11). Captures BTHome
   button broadcasts, on-chip µs timestamps, dedups the advert burst by
-  `packet_id`, ISR-timed external start + horn/light/beep, streams over USB
-  serial. Wi-Fi provisioned over BLE.
+  `packet_id`, ISR-timed external start + horn/light/beep, streams each line over
+  **both USB serial and Wi-Fi TCP (port 3333)**. Wi-Fi provisioned over BLE.
 - **`src/server.ts`** — Node server: serial → race state machine → live dashboard
   (`static/`) + `/remote`, with `.do3`/`.lif` export.
 - **`src/publish.ts`** — completed heats → SQLite → single-file public results page.
