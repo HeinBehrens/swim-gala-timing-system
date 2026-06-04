@@ -421,11 +421,6 @@ function handleExternalStart(espMicros: number | null): void {
 }
 
 // ── Exports (mirror server.py .do3 / .lif) ───────────────────────────────────
-function fmtMSShh(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(2).padStart(5, "0")}`;
-}
 function fmtMMSShh(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds - m * 60;
@@ -437,13 +432,30 @@ function exportBaseName(ext: string): string {
   const id = String(race.raceIdCounter).padStart(4, "0");
   return `${race.datasetNum}-${ev}-${ht}F-${id}.${ext}`;
 }
+// Colorado Time Systems "Dolphin" .do3 result file (final times only). Sport
+// Systems / Hy-Tek Meet Manager import this as "Colorado Time Systems" AOE; the
+// filename already follows the AAA-BBB-CCCXNNNN convention via exportBaseName().
+// Content layout (best-effort — see notes):
+//   <eee>-<hh>-1;<dataset>;<raceId>;All       header
+//   Lane1;<seconds.hh>;0;0                     one line per lane
+//   ...
+// Times are TOTAL SECONDS with 2 decimals (Dolphin convention, e.g. 143.31 =
+// 2:23.31); 0 = no time. The final time goes in column 1; the other two columns
+// are split/extra-button slots we don't have. NOTE: genuine Dolphin files end
+// with a checksum line which we omit (most importers ignore it) — if Sport
+// Systems rejects the file, that and the header punctuation are what to match
+// against a real sample.
 function exportDo3(): string {
   mkdirSync(EXPORTS_DIR, { recursive: true });
   const name = exportBaseName("do3");
+  const ev = String(race.eventNum).padStart(3, "0");
+  const ht = String(race.heatNum).padStart(2, "0");
   const lines: string[] = [];
+  lines.push(`${ev}-${ht}-1;${race.datasetNum};${race.raceIdCounter};All`);
   for (let lane = 1; lane <= NUM_LANES; lane++) {
     const r = race.laneResult(lane);
-    lines.push(`Lane ${lane}   ${r !== null ? fmtMSShh(r) : "      NT"}`);
+    const t = r !== null ? r.toFixed(2) : "0";
+    lines.push(`Lane${lane};${t};0;0`);
   }
   writeFileSync(join(EXPORTS_DIR, name), lines.join("\n") + "\n");
   return name;
