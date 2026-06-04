@@ -111,7 +111,10 @@ export class Esp32Gateway extends EventEmitter {
   // Resolve the serial device to open, or undefined if none is attached.
   private async resolveSerialPath(): Promise<string | undefined> {
     const p = this.serialPreferred;
-    if (p !== "auto" && existsSync(p)) return p;
+    // Honour an explicit port. On Windows a COM name (COM5, \\.\COM12) isn't a
+    // filesystem path, so existsSync() would always fail — accept it directly;
+    // elsewhere (macOS/Linux /dev/*) keep the existence check.
+    if (p !== "auto" && (/^(\\\\\.\\)?COM\d+$/i.test(p) || existsSync(p))) return p;
     return Esp32Gateway.detectPort();
   }
 
