@@ -1,59 +1,70 @@
 # Swim Gala Timing System — Hardware (start signal kit)
 
-Companion hardware for the ESP32-C5 gateway (`firmware/esp32_shelly_scanner`, **v11**).
-Adds an **external start** (button → ESP), a **bright 12 V beacon**, and a **start beep**
-played through a megaphone — all powered from a power bank, in a waterproof box.
+Companion hardware for the ESP32-C5 gateway (`firmware/esp32_shelly_scanner`, **v12**).
+Adds a **5 V USB strobe light** and a **start beep** played through a **MAX98357 I2S
+amp + speaker** — both USB-powered, in a waterproof box. No 12 V, no power bank, no
+megaphone needed for the start signal.
 
-The Shelly starter button is **not needed**: pressing the start button makes the ESP
-timestamp the start (on-chip µs), tell the host to start the clock, flash the beacon,
-and beep the megaphone — one trigger, everything in sync.
+**No wired start button.** The race start is one of the **Shelly BLU buttons**,
+designated host-side (dashboard re-enroll → sends `STARTER\t<mac>` to the ESP). When
+that button is pressed the ESP timestamps it on-chip, the host starts the clock from
+its PRESS line, and the ESP fires the light + beep locally — one wireless trigger,
+everything in sync.
 
-> **All timing is done on the ESP32, not the host.** The start is captured in a
-> hardware ISR at the falling edge and finishes are stamped with the on-chip
-> microsecond clock in the BLE callback — both from the *same* monotonic clock,
-> so a race time is `finish_µs − start_µs` and any transport latency cancels. The
-> host only subtracts. The same stamped line is streamed over **both USB serial
-> and Wi-Fi TCP (port 3333, `swim-timer.local`)**; since the stamp is taken
-> on-chip before either path, it makes no difference which transport delivers it.
-> This is why a button on GPIO4 (and the DIY touchpads below) is accurate despite
-> running through a laptop over USB or Wi-Fi — see the README for the
-> full rationale and `src/latency-test.ts` for why host-side stamps are not.
+> **All timing is done on the ESP32, not the host.** The start button (a designated
+> Shelly BLU button) and every finish are stamped with the on-chip microsecond clock
+> in the BLE receive callback — all from the *same* monotonic clock, so a race time
+> is `finish_µs − start_µs` and any transport latency cancels. The host only
+> subtracts. The same stamped line is streamed over **both USB serial and Wi-Fi TCP
+> (port 3333, `swim-timer.local`)**; since the stamp is taken on-chip before either
+> path, it makes no difference which transport delivers it. This is why the system
+> (and the DIY touchpads below) is accurate despite running through a laptop over USB
+> or Wi-Fi — see the README for the full rationale and `src/latency-test.ts` for why
+> host-side stamps are not.
 
 ## Pin map (ESP32-C5-DevKitC-1 v1.2)
 | GPIO | Role | Connects to |
 |---|---|---|
-| **GPIO4** | START input (active-LOW, ISR-timed) | start button → GND |
-| **GPIO5** | Beacon switch (on for 1.5 s at start) | MOSFET module SIG → 12 V beacon |
-| **GPIO6** | Start tone (2 kHz PWM) | 1 µF cap → megaphone 3.5 mm AUX tip |
+| **GPIO5** | Light switch (on for 1.5 s at start) | MOSFET module SIG → 5 V USB strobe/LED |
+| **GPIO4** | I2S BCLK (bit clock) | MAX98357 **BCLK** |
+| **GPIO6** | I2S LRC (word clock) | MAX98357 **LRC** |
+| **GPIO10** | I2S DOUT (serial data) | MAX98357 **DIN** |
 | GND | common ground | ground everything together (critical) |
-| 5V | ESP power | power bank USB-A |
+| 5V | ESP + amp + light power | USB (power bank USB-A or USB charger) |
 
 Safe GPIOs only; avoid C5 strapping pins 7/25/26/27/28 + MTMS/MTDI, USB 13/14, UART 11/12.
+(GPIO4/6 were freed from the old wired-start/megaphone-tone roles; verify GPIO10 is free
+on your board before wiring.)
 
 ## Wiring
 
-### Beacon (12 V via PD power bank)
+### Start beep — MAX98357 I2S amp → speaker
 ```
- USB-C PD bank ── PD trigger cable ──▶ 12V+ ─▶ MOSFET VIN+
-                                       12V GND ▶ MOSFET VIN−
- GPIO5 ─────────────────────────────────────▶ MOSFET SIG
- ESP GND ────────────────────────────────────▶ MOSFET GND   (shared ground!)
- MOSFET OUT+ ─▶ beacon (+)
- MOSFET OUT− ─▶ beacon (−)
- ESP powered from the SAME bank's USB-A port → ground is common.
-```
-
-### Start button (on a cable)
-```
- Switchcraft EP913S23 (momentary, IP67):  COM → GND,  NO → GPIO4
- (no resistor — firmware uses internal pull-up)
+ ESP 5V  ─────────▶ MAX98357 VCC   (2.5–5.5 V)
+ ESP GND ─────────▶ MAX98357 GND   (shared ground)
+ GPIO4   ─────────▶ MAX98357 BCLK
+ GPIO6   ─────────▶ MAX98357 LRC
+ GPIO10  ─────────▶ MAX98357 DIN
+ MAX98357 SD  ── leave enabled (board default / tie to VCC); silence = no I2S data
+ MAX98357 GAIN ── sets volume (floating ≈ 9 dB; see board silkscreen)
+ MAX98357 +/− ─▶ 4–8 Ω speaker
 ```
 
-### Start tone → megaphone AUX
+### Strobe light (5 V USB via MOSFET)
 ```
- GPIO6 ──[ 1 µF ]──▶ 3.5 mm TIP (+ RING for mono)
- GND ──────────────▶ 3.5 mm SLEEVE
- Set loudness with the megaphone's volume knob.
+ USB 5V  ───────────────────────────▶ MOSFET VIN+  ─▶ light (+)
+ GPIO5   ───────────────────────────▶ MOSFET SIG
+ ESP GND ───────────────────────────▶ MOSFET VIN− / GND  (shared ground)
+ MOSFET OUT− ─▶ light (−)
+ A logic-level MOSFET module low-side-switches the light's 5 V; powered from the
+ same USB source as the ESP so ground is common.
+```
+
+### Start trigger (wireless — no wiring)
+```
+ Designate one Shelly BLU button as the starter in the dashboard
+ (Settings → re-enroll). The host sends "STARTER\t<mac>" to the ESP, which
+ saves it to flash (NVS) and fires the light + beep on that button's press.
 ```
 
 > Where to buy the **Shelly BLU buttons** and the **ESP32-C5 board** (UK / EU /
@@ -63,34 +74,32 @@ Safe GPIOs only; avoid C5 strapping pins 7/25/26/27/28 + MTMS/MTDI, USB 13/14, U
 | Part | Purpose | Qty | Link |
 |---|---|---|---|
 | ESP32-C5-DevKitC-1 v1.2 | gateway (have) | 1 | — |
-| 12 V LED strobe/rotating beacon | start flash | 1 | https://www.amazon.co.uk/Cyrank-Strobe-Flashing-Security-Warning-Default/dp/B0CRF1J3M8 |
-| Logic-level MOSFET trigger module | GPIO5 switches beacon | 1 | https://www.amazon.co.uk/s?k=mosfet+trigger+driver+module |
-| USB-C PD power bank (simultaneous PD + 5 V) | powers ESP (5 V) + beacon (12 V) | 1 | UGREEN Nexode 100W https://www.amazon.co.uk/UGREEN-20000mAh-Charging-Recharge-Compatible/dp/B0C3GTMX5M · INIU 65W https://www.amazon.co.uk/INIU-20000mAh-Charging-Portable-Charger/dp/B0CB1DF4JQ |
-| USB-C → 12 V PD trigger cable | 12 V from the bank | 1 | https://www.amazon.co.uk/s?k=usb+c+pd+to+12v+trigger+cable |
-| Start button (momentary, IP67) | START → GPIO4/GND | 1 | Switchcraft EP913S23 https://www.digikey.co.uk/en/products/detail/switchcraft-inc/EP913S23/5361153 |
-| — cheaper alt | budget / hands-free | — | RUNCCI-YUN https://www.amazon.co.uk/RUNCCI-YUN-Momentary-Waterproof-Stainless-Normally/dp/B0B3QJGNG7 · foot switch https://www.amazon.co.uk/mxuteuk-Momentary-Nonslip-Handsfree-Industrial/dp/B08JLMXQS6 |
-| Megaphone w/ 3.5 mm AUX in | voice + start beep | 1 | Pyle PMP43IN (AA) https://www.amazon.co.uk/Megaphone-Function-800-Metres-Microphone-Batteries/dp/B00R9P1BT8 · MyMealivos (USB-rechargeable) https://www.amazon.co.uk/MyMealivos-Megaphone-Detachable-Microphone-Lightweight/dp/B07YRJJ1TJ |
-| 3.5 mm plug / screw-terminal | GPIO6 tone → AUX | 1 | https://www.amazon.co.uk/s?k=3.5mm+screw+terminal+connector |
-| IP67 enclosure (158×90×60, clear lid) | houses ESP + MOSFET | 1 | https://www.amazon.co.uk/Electronics-Electrical-Electronic-6-1x3-5x2-3Inch-157X88-5X60mm/dp/B0CYZT7T72 |
+| MAX98357 I2S 3 W Class-D amp module | start beep (I2S → speaker) | 1 | **ordered** — Amazon B0FKSLXFK6 https://www.amazon.co.uk/dp/B0FKSLXFK6 (3-pack) |
+| 4–8 Ω speaker (3 W+) | start beep output | 1 | https://www.amazon.co.uk/s?k=4+ohm+3w+speaker |
+| 5 V USB LED strobe / warning light | start flash | 1 | https://www.amazon.co.uk/s?k=5v+usb+strobe+warning+light |
+| Logic-level MOSFET trigger module | GPIO5 switches the 5 V light | 1 | https://www.amazon.co.uk/s?k=mosfet+trigger+driver+module |
+| USB power source (power bank or charger) | powers ESP + amp + light (all 5 V) | 1 | any 5 V/≥2 A USB-A power bank or charger |
+| USB-A → bare-wire / breakout | tap 5 V for the light + amp | 1 | https://www.amazon.co.uk/s?k=usb+a+to+screw+terminal+adapter |
+| IP67 enclosure (158×90×60, clear lid) | houses ESP + amp + MOSFET | 1 | https://www.amazon.co.uk/Electronics-Electrical-Electronic-6-1x3-5x2-3Inch-157X88-5X60mm/dp/B0CYZT7T72 |
 | Cable glands (PG7/PG9) **or** SP13 2-pin connectors | cable entry (permanent vs unpluggable) | 2–4 | glands https://www.amazon.co.uk/s?k=pg7+pg9+cable+gland+pack · SP13 https://www.amazon.co.uk/s?k=sp13+2+pin+waterproof+connector |
-| 2-core cable | button + beacon runs (≤10 m each) | ~10 m | https://www.amazon.co.uk/s?k=2+core+cable |
-| Electronics starter kit (breadboard, caps, resistors, jumpers) | 1 µF AUX cap + prototyping | 1 | https://www.amazon.co.uk/ELEGOO-Electronics-Potentiometer-tie-points-Breadboard/dp/B01LZRV539 |
-| Dupont jumper wires | GPIO connections | 1 | https://www.amazon.co.uk/Elegoo-120pcs-Multicolored-Breadboard-arduino-colorful/dp/B01EV70C78 |
+| 2-core cable | light run (≤10 m) | ~10 m | https://www.amazon.co.uk/s?k=2+core+cable |
+| Electronics starter kit (breadboard, resistors, jumpers) | prototyping | 1 | https://www.amazon.co.uk/ELEGOO-Electronics-Potentiometer-tie-points-Breadboard/dp/B01LZRV539 |
+| Dupont jumper wires | GPIO ↔ MAX98357 / MOSFET | 1 | https://www.amazon.co.uk/Elegoo-120pcs-Multicolored-Breadboard-arduino-colorful/dp/B01EV70C78 |
 
-## Recommended power bank
-**UGREEN Nexode 100W 20000mAh** (2× USB-C + 1× USB-A) — plug the **PD trigger cable into a
-USB-C port** (→ 12 V for the beacon) and run the **ESP off the USB-A port** (→ 5 V). Both
-output simultaneously and share one internal ground. Alt: **INIU 65W 20000mAh** (3-port).
+## Power
+Everything is **5 V from one USB source** — a USB-A power bank or a wall charger (≥2 A). The
+ESP, the MAX98357 amp, and the (switched) 5 V light all share that supply, so ground is
+common automatically. No PD trigger / 12 V / dual-rail bank required anymore.
 
 ## Assembly notes / cautions
-- **Shared ground is mandatory** — ESP GND, MOSFET GND/VIN−, and the 12 V (PD) ground must
-  all connect. Using one power bank for both ESP and beacon makes this automatic.
-- **Start button must be MOMENTARY** (push-to-make), not latching. Switchcraft: COM + NO only.
+- **Shared ground is mandatory** — ESP GND, MAX98357 GND, MOSFET GND/VIN−, and the light's
+  5 V return must all connect. One USB source for everything makes this automatic.
+- **MAX98357 SD pin** must be enabled (board default high / tie to VCC) or you get no sound;
+  silence is just the absence of I2S data, so no extra mute logic is needed.
 - **Power-bank auto-shutoff:** pick one that won't cut off at low current; the ESP (Wi-Fi+BLE)
   usually draws enough (>100 mA) to keep it awake.
-- **Beacon = single flash** (1.5 s), like real meet start systems — not a continuous strobe.
-- The cheap Pyle megaphone uses **AA batteries** (not USB); MyMealivos is USB-rechargeable.
-  Only one wire goes to it: GPIO6 → its 3.5 mm AUX.
+- **Light = single flash** (1.5 s), like real meet start systems — not a continuous strobe.
+- **No wired start button** — the start is a Shelly BLU button designated in the dashboard.
 - Browser note: the dashboard runs in any browser, but **Wi-Fi provisioning needs Chrome/Edge**
   (Web Bluetooth). Server runs on macOS/Windows/Linux (Node) — see [[gateway-wifi-flashing]].
 
@@ -146,8 +155,8 @@ Touch anywhere → top layer bows through a mesh hole → contacts bottom layer 
   length of PVC pipe into a bottom sleeve as a weight so it hangs flat and stays submerged.
 
 ### Wiring to the ESP32-C5
-Each pad is electrically identical to the **START input on GPIO4** — a contact closure to
-GND, INPUT_PULLUP, active-LOW. Press → input reads LOW.
+Each pad is a simple **contact closure to GND** (INPUT_PULLUP, active-LOW): press → input
+reads LOW — the same electrical idea as a momentary button.
 - **Pin budget:** the safe-GPIO list above can't spare 6 lanes. Add **one MCP23017** (16
   inputs over I²C, internal pull-ups, ~£3): lanes 1–6 → GPA0–GPA5; scales to 16 lanes free.
 - **Long wet runs (≤10 m each):** use the expander's pull-ups (or external 4.7 k–10 k), not
@@ -157,7 +166,7 @@ GND, INPUT_PULLUP, active-LOW. Press → input reads LOW.
 ### Firmware: debounce + first-touch latch
 Two must-haves: debounce (water/multi-touch chatter) and a **per-lane latch so the *first*
 touch wins** and later touches in the same heat are ignored until `resetHeat()`. Emits a
-finish as a timestamped event on the same path as the GPIO4 start.
+finish as an on-chip-timestamped event, the same path as a button press.
 ```cpp
 const uint8_t LANES = 6;
 uint32_t touchMs[LANES];        // 0 = not yet finished this heat
@@ -195,5 +204,8 @@ void resetHeat() { for (auto &t : touchMs) t = 0; }  // call on new start
 so you can validate a real pad in water before committing to a full set.
 
 ## Firmware
-v11, flash with `arduino-cli ... --fqbn esp32:esp32:esp32c5:PartitionScheme=huge_app`.
-Test the start flow with just the button on GPIO4/GND before the beacon/megaphone arrive.
+v12, flash with `arduino-cli ... --fqbn esp32:esp32:esp32c5:PartitionScheme=huge_app`.
+Requires arduino-esp32 core 3.x (uses `ESP_I2S.h`). Designate a starter button in the
+dashboard, then test: pressing it should fire the light (GPIO5) + a 2 kHz beep over the
+MAX98357 for 1.5 s. You can verify the beep with just the amp + speaker wired, before the
+strobe light arrives.

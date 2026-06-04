@@ -13,10 +13,9 @@ reads its BTHome v2 broadcasts and timestamps them on-chip.
 
 - **Model:** `SBBT-002C` (the **Tough** variant — IP-rated, not the indoor BLU Button1).
 - **Battery:** CR2032, ~2-year life. Buy a few spares.
-- **Quantity:** **6** (one per lane). Add a **7th** only if you want a *Shelly*
-  button for the start instead of the wired GPIO4 start button — the GPIO4 button
-  is recommended for the start (it's ISR-timed and also fires the beacon/horn), so
-  6 is usually enough. See the start rationale in [HARDWARE.md](HARDWARE.md).
+- **Quantity:** **7** — 6 for the lanes + **1 for the start**. There is no wired
+  start button: one button is designated the starter in the dashboard, and its
+  press both starts the clock and fires the light + beep. See [HARDWARE.md](HARDWARE.md).
 - **Colours:** Black, Ivory, Mocha (model suffix `-B` / `-I` / `-M`). Cosmetic only.
 
 | Seller | Region | ~Price each | Link |
@@ -38,7 +37,7 @@ reads its BTHome v2 broadcasts and timestamps them on-chip.
 >
 > **Knowledge base / pairing:** https://kb.shelly.cloud/knowledge-base/shelly-blu-button-tough-1
 
-**Rough button spend:** 6 × ~£16 ≈ **£96** (+ a 7th ≈ £112), plus a pack of CR2032s.
+**Rough button spend:** 7 × ~£16 ≈ **£112** (6 lanes + 1 start), plus a pack of CR2032s.
 
 ## 2. Gateway board — ESP32-C5-DevKitC-1
 
@@ -71,11 +70,13 @@ firmware FQBN and pin map target this board specifically.
 
 | Item | Qty | ~Total |
 |---|---|---|
-| Shelly BLU Button1 Tough (SBBT-002C) | 6 | £96 |
+| Shelly BLU Button1 Tough (SBBT-002C) | 7 (6 lanes + start) | £112 |
 | CR2032 batteries (spares) | pack | £4 |
 | ESP32-C5-DevKitC-1 (+ 1 spare) | 2 | £30 |
+| MAX98357 I2S amp + 4–8 Ω speaker | 1 | £8 |
+| 5 V USB strobe light + MOSFET module | 1 | £10 |
 | USB-C cable for the ESP | 1 | £4 |
-| **Core electronics subtotal** | | **~£134** |
+| **Core electronics subtotal** | | **~£168** |
 
 Add the start-signal kit and (optional) DIY finish touchpads from
 [HARDWARE.md](HARDWARE.md) to complete the build.

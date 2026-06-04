@@ -6,6 +6,13 @@
  * Captures Shelly BLU Button1 Tough BTHome v2 broadcasts, timestamps each press
  * ON-CHIP in microseconds, dedups the advert burst by packet_id, and streams one
  * clean line per press to the laptop over BOTH:
+ *
+ * Start signal (v12): no wired start button. The race start is one of the Shelly
+ * BLU buttons, designated by the host via "STARTER\t<mac>". When that button is
+ * seen the ESP fires the local start signal — a 5 V USB strobe LIGHT (GPIO5 via a
+ * logic-level MOSFET) plus a start BEEP played over I2S through a MAX98357 3 W amp
+ * + speaker. Light and sound are USB-powered; the host starts the clock from the
+ * starter button's PRESS line.
  *   - USB serial (115200), always; and
  *   - Wi-Fi TCP (port 3333), when Wi-Fi credentials are set below.
  * The host can use either; USB is the bulletproof fallback.
@@ -36,6 +43,7 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <esp_timer.h>
+#include <ESP_I2S.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include <string.h>
@@ -50,29 +58,26 @@
 #define MDNS_HOSTNAME "swim-timer"   // -> swim-timer.local
 #define TCP_PORT 3333
 
-// ── Start signal: horn + strobe light ────────────────────────────────────────
-// One GPIO drives a logic-level MOSFET gate (GPIO5 on the ESP32-C5-DevKitC-1)
-// switching a separately-powered 12 V horn + strobe (combined unit, or a horn
-// and a light in parallel on the same switched 12 V line). Sound + light fire
-// TOGETHER, locally, the instant the starter button is seen — the host pushes
-// the starter MAC via "STARTER\t<mac>\n", so dashboard re-enrollment just works.
+// ── Start signal: USB strobe light + I2S beep ────────────────────────────────
+// GPIO5 drives a logic-level MOSFET gate switching a 5 V USB strobe/LED LIGHT
+// (low-side switch on the light's USB 5V line; shared ground with the ESP). The
+// light fires for SIGNAL_MS the instant the designated starter button is seen.
+// There is NO wired start button: the start is a Shelly BLU button, designated by
+// the host via "STARTER\t<mac>\n" (dashboard re-enrollment just works).
 #define SIGNAL_PIN 5
-#define SIGNAL_MS  1500     // how long the horn + light stay on at start, ms
+#define SIGNAL_MS  1500     // how long the light + beep stay on at start, ms
 
-// External START input (GPIO4): a contact that closes to GND when the race
-// starts — a dedicated start button, or a tap off the PA unit's tone button.
-// Replaces the Shelly starter button: on press the ESP timestamps the start
-// (on-chip µs), tells the host to start the clock, and fires the start signal —
-// so sound, light, and timing all share one trigger. INPUT_PULLUP, active-LOW.
-#define START_IN_PIN 4
-#define START_DEBOUNCE_MS 300
-
-// Start TONE output (GPIO6): a PWM square wave fed (via an RC filter + coupling
-// cap) into the megaphone's 3.5 mm AUX input, so the start sound plays through
-// the same megaphone used for announcements. Fires together with the light, for
-// SIGNAL_MS. Adjust loudness with the megaphone's volume.
-#define AUX_PIN 6
-#define TONE_HZ 2000        // start-beep frequency
+// Start BEEP over I2S → MAX98357 3 W Class-D amp → speaker. The amp is USB-powered
+// (VCC 2.5–5.5 V). Three signal pins (verify against the safe-GPIO list in
+// HARDWARE.md before wiring): GPIO4 freed from the old wired start, GPIO6 freed
+// from the old megaphone-AUX tone, GPIO10 for data.
+#define I2S_BCLK   4        // MAX98357 BCLK  (bit clock)
+#define I2S_LRC    6        // MAX98357 LRC   (word/LR clock)
+#define I2S_DOUT   10       // MAX98357 DIN   (serial data)
+#define SAMPLE_RATE 16000   // Hz
+#define TONE_HZ     2000    // start-beep frequency
+// MAX98357 SD pin: leave enabled (tie high / board default) — silence is just the
+// absence of I2S data. GAIN pin sets volume (see HARDWARE.md).
 
 // BLE Wi-Fi provisioning GATT service — the dashboard writes credentials here
 // over Web Bluetooth; the ESP saves them to flash (NVS) and joins the network.
@@ -117,18 +122,9 @@ static QueueHandle_t pressQ = nullptr;
 // ── Start signal state ────────────────────────────────────────────────────────
 static uint8_t  starterMac[6] = {0};
 static bool     starterSet    = false;
-static uint32_t signalOffMs   = 0;     // millis() at which to switch the horn+light off (0 = off)
-// External START input, captured in an ISR for a precise edge timestamp.
-static volatile bool     startFlag = false;
-static volatile int64_t  startTs   = 0;
-static volatile uint32_t lastStartIsrMs = 0;
-static void IRAM_ATTR onStartIsr() {
-  uint32_t now = millis();
-  if (now - lastStartIsrMs < START_DEBOUNCE_MS) return;  // debounce contact bounce
-  lastStartIsrMs = now;
-  startTs   = esp_timer_get_time();      // authoritative start time, at the edge
-  startFlag = true;
-}
+static uint32_t signalOffMs   = 0;       // millis() at which to switch the light+beep off (0 = off)
+static I2SClass i2s;                      // MAX98357 start-beep output
+static volatile bool toneOn = false;      // audioTask plays the beep while true
 
 // ── Wi-Fi / TCP / provisioning ───────────────────────────────────────────────
 static WiFiServer tcpServer(TCP_PORT);
@@ -318,7 +314,8 @@ static void setupProvisioning() {
   Serial.println("WIFI\tBLE provisioning ready (" BLE_DEVICE_NAME ")");
 }
 
-static void ioTask(void *);  // defined below; forward-declared for setup()
+static void ioTask(void *);     // defined below; forward-declared for setup()
+static void audioTask(void *);  // defined below; forward-declared for setup()
 
 void setup() {
   Serial.begin(115200);
@@ -326,15 +323,15 @@ void setup() {
 
   pressQ = xQueueCreate(64, sizeof(PressEvt));
 
-  // Start-signal output (horn + strobe via MOSFET) — default OFF.
+  // Start-signal light output (5 V USB strobe via MOSFET) — default OFF.
   pinMode(SIGNAL_PIN, OUTPUT);
   digitalWrite(SIGNAL_PIN, LOW);
-  // External START input (button / PA tone contact), active-LOW, edge-timed.
-  pinMode(START_IN_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(START_IN_PIN), onStartIsr, FALLING);
-  // Start-tone PWM channel into the megaphone AUX (10-bit, base freq).
-  ledcAttach(AUX_PIN, TONE_HZ, 10);
-  ledcWriteTone(AUX_PIN, 0);
+  // Start-beep output: I2S → MAX98357. (bclk, ws, dout); din/mclk default -1.
+  i2s.setPins(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO)) {
+    Serial.println("WIFI\tI2S init failed");
+  }
+  xTaskCreate(audioTask, "audio", 4096, nullptr, 1, nullptr);
   // Restore the starter MAC saved by a previous "STARTER" command.
   prefs.begin("cfg", true);
   starterSet = (prefs.getBytes("starter", starterMac, 6) == 6);
@@ -355,7 +352,7 @@ void setup() {
   // so a press is sent within ms, not held until the 1 s scan window ends.
   xTaskCreate(ioTask, "io", 4096, nullptr, 2, nullptr);
 
-  Serial.println("READY\tesp32-shelly-scanner\tv11");
+  Serial.println("READY\tesp32-shelly-scanner\tv12");
   // Finite-window scan loop runs in loop(); start(0) (continuous) leaks RAM in
   // this BLE library (no public setMaxResults) -> bad_alloc abort.
 }
@@ -388,13 +385,36 @@ static void serviceTcp() {
   }
 }
 
-// ── Start signal (horn + strobe) ─────────────────────────────────────────────
-// Fire the start signal: strobe light + AUX tone together. Non-blocking (both
-// auto-off in ioTask after SIGNAL_MS); called when the start is triggered.
+// ── Start signal (USB light + I2S beep) ──────────────────────────────────────
+// Fire the start signal: 5 V USB strobe light + I2S beep together. Non-blocking
+// (both auto-off in ioTask after SIGNAL_MS); called when the start is triggered.
 static void fireStartSignal() {
-  digitalWrite(SIGNAL_PIN, HIGH);     // strobe / beacon via MOSFET
-  ledcWriteTone(AUX_PIN, TONE_HZ);    // start beep into the megaphone AUX
+  digitalWrite(SIGNAL_PIN, HIGH);     // 5 V USB strobe light via MOSFET
+  toneOn = true;                      // audioTask streams the beep to the MAX98357
   signalOffMs = millis() + SIGNAL_MS;
+}
+
+// Audio task — when toneOn, streams a square-wave beep to the MAX98357 over I2S.
+// I2S.write() blocks on the DMA buffer, so it lives in its own task and never
+// stalls press handling. Silence = simply not writing (no DMA data).
+static void audioTask(void *) {
+  const int N = 256;
+  int16_t buf[N];
+  const int   half = (SAMPLE_RATE / TONE_HZ) / 2;   // samples per half-period
+  const int16_t AMP = 9000;                         // ~27% of full scale
+  int phase = 0;
+  for (;;) {
+    if (toneOn) {
+      for (int i = 0; i < N; i++) {
+        buf[i] = ((phase / half) & 1) ? AMP : (int16_t)-AMP;
+        if (++phase >= half * 2) phase = 0;
+      }
+      i2s.write((uint8_t *)buf, sizeof(buf));
+    } else {
+      phase = 0;
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
+  }
 }
 
 // Parse "aa:bb:cc:dd:ee:ff" into 6 bytes.
@@ -454,17 +474,9 @@ static void ioTask(void *) {
       }
     }
     pollCommands();                                   // host -> gateway (e.g. STARTER mac)
-    // External START input fired (ISR captured the precise edge timestamp).
-    if (startFlag) {
-      startFlag = false;
-      char s[40];
-      snprintf(s, sizeof(s), "START\t%lld\n", (long long)startTs);
-      emitLine(s);                              // tell the host to start the clock
-      fireStartSignal();                        // horn + light, in sync with the timestamp
-    }
     if (signalOffMs && (int32_t)(millis() - signalOffMs) >= 0) {  // auto-off the start signal
-      digitalWrite(SIGNAL_PIN, LOW);
-      ledcWriteTone(AUX_PIN, 0);      // silence the tone
+      digitalWrite(SIGNAL_PIN, LOW);  // light off
+      toneOn = false;                 // stop the I2S beep
       signalOffMs = 0;
     }
     serviceTcp();
