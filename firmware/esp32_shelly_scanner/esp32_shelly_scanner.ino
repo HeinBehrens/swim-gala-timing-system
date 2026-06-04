@@ -74,7 +74,7 @@
 #define I2S_BCLK   4        // MAX98357 BCLK  (bit clock)
 #define I2S_LRC    6        // MAX98357 LRC   (word/LR clock)
 #define I2S_DOUT   10       // MAX98357 DIN   (serial data)
-#define SAMPLE_RATE 16000   // Hz
+#define SAMPLE_RATE 32000   // Hz (16 samples per 2 kHz cycle → clean sine)
 #define TONE_HZ     2000    // start-beep frequency
 // MAX98357 SD pin: leave enabled (tie high / board default) — silence is just the
 // absence of I2S data. GAIN pin sets volume (see HARDWARE.md).
@@ -328,7 +328,9 @@ void setup() {
   digitalWrite(SIGNAL_PIN, LOW);
   // Start-beep output: I2S → MAX98357. (bclk, ws, dout); din/mclk default -1.
   i2s.setPins(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO)) {
+  // Stereo (same sample on L+R) so the beep plays regardless of the MAX98357's
+  // channel-select resistor.
+  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
     Serial.println("WIFI\tI2S init failed");
   }
   xTaskCreate(audioTask, "audio", 4096, nullptr, 1, nullptr);
@@ -394,20 +396,25 @@ static void fireStartSignal() {
   signalOffMs = millis() + SIGNAL_MS;
 }
 
-// Audio task — when toneOn, streams a square-wave beep to the MAX98357 over I2S.
-// I2S.write() blocks on the DMA buffer, so it lives in its own task and never
-// stalls press handling. Silence = simply not writing (no DMA data).
+// Audio task — when toneOn, streams a SINE beep (stereo, same sample on L+R) to
+// the MAX98357 over I2S. I2S.write() blocks on the DMA buffer, so it lives in its
+// own task and never stalls press handling. Silence = simply not writing.
 static void audioTask(void *) {
-  const int N = 256;
-  int16_t buf[N];
-  const int   half = (SAMPLE_RATE / TONE_HZ) / 2;   // samples per half-period
+  const int PERIOD = SAMPLE_RATE / TONE_HZ;         // samples per cycle (e.g. 16)
   const int16_t AMP = 9000;                         // ~27% of full scale
+  int16_t sine[PERIOD];
+  for (int i = 0; i < PERIOD; i++)
+    sine[i] = (int16_t)(AMP * sinf(2.0f * (float)PI * i / PERIOD));
+  const int FRAMES = 128;
+  int16_t buf[FRAMES * 2];                          // stereo interleaved L,R
   int phase = 0;
   for (;;) {
     if (toneOn) {
-      for (int i = 0; i < N; i++) {
-        buf[i] = ((phase / half) & 1) ? AMP : (int16_t)-AMP;
-        if (++phase >= half * 2) phase = 0;
+      for (int i = 0; i < FRAMES; i++) {
+        int16_t s = sine[phase];
+        buf[2 * i]     = s;                         // left
+        buf[2 * i + 1] = s;                         // right
+        if (++phase >= PERIOD) phase = 0;
       }
       i2s.write((uint8_t *)buf, sizeof(buf));
     } else {
