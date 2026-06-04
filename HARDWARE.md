@@ -8,6 +8,14 @@ The Shelly starter button is **not needed**: pressing the start button makes the
 timestamp the start (on-chip µs), tell the host to start the clock, flash the beacon,
 and beep the megaphone — one trigger, everything in sync.
 
+> **All timing is done on the ESP32, not the host.** The start is captured in a
+> hardware ISR at the falling edge and finishes are stamped with the on-chip
+> microsecond clock in the BLE callback — both from the *same* monotonic clock,
+> so a race time is `finish_µs − start_µs` and any USB/host latency cancels. The
+> host only subtracts. This is why a button on GPIO4 (and the DIY touchpads
+> below) is accurate despite running through a laptop — see the README for the
+> full rationale and `src/latency-test.ts` for why host-side stamps are not.
+
 ## Pin map (ESP32-C5-DevKitC-1 v1.2)
 | GPIO | Role | Connects to |
 |---|---|---|

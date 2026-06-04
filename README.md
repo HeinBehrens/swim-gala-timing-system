@@ -1,2 +1,65 @@
-Using Shelly Tough 1 buttons and an ESP32 for accuracy. 
-6 lane buttons and a started button.
+# Swim Gala Timing System
+
+A low-cost automatic swim-meet timing system: **Shelly BLU Button1 Tough** lane
+buttons + an **ESP32-C5 gateway**, a Node server with a live dashboard, results
+publishing, and DIY start/finish hardware. Six lane buttons + one start button.
+
+## Timing runs on the ESP32 — not on the host
+
+**All timing is done on-chip on the ESP32**, and this is the core reason the
+system is accurate. The host (the Node server on macOS/Linux) never timestamps a
+race event — it only does bookkeeping.
+
+- Every button press is stamped with the ESP's **on-chip microsecond clock**
+  (`esp_timer_get_time()`) inside the BLE receive callback, *before* any
+  processing — see `firmware/esp32_shelly_scanner/esp32_shelly_scanner.ino`,
+  `onResult()`.
+- The external **START** is captured in a **hardware ISR at the falling edge**
+  (`onStartIsr()`), so the start instant is precise to the edge, not to when
+  software got around to looking.
+- Start and finish are read from the **same monotonic clock**, so a race time is
+  simply `finish_µs − start_µs`. The ESP streams these stamps to the host over
+  USB serial (`PRESS\t…\tmicrosSinceBoot`); the host just subtracts.
+
+### Why this beats timing on the host (macOS)
+
+| | ESP32 on-chip | Host (macOS / Node) |
+|---|---|---|
+| When the stamp is taken | µs after the radio/edge event, in the callback/ISR | whenever the OS schedules Node to run |
+| Clock | one bare-metal monotonic µs counter | OS clock, behind CoreBluetooth + event loop + USB serial |
+| Jitter source | none meaningful | OS scheduling, callback coalescing, USB latency — **tens of ms, varying per event** |
+| Does the jitter cancel? | **Yes** — start & finish share one clock, so downstream USB/host latency cancels exactly | **No** — each event's host-side delay is independent and lands directly in the result |
+
+Concretely: even if the serial line to the host is **200 ms late**, the elapsed
+time is still correct, because it's the difference of two stamps taken on the ESP
+itself. Host-side timestamping has no such guarantee — its per-event jitter does
+not cancel and shows up as timing error.
+
+> Note: `src/latency-test.ts` deliberately timestamps on the *host* to
+> characterize BLE radio reliability (drops, burst redundancy). Its jitter
+> numbers are a **pessimistic host-side proxy**, not the timing error swimmers
+> get — see the header comment in that file.
+
+## Components
+
+- **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v11). Captures BTHome
+  button broadcasts, on-chip µs timestamps, dedups the advert burst by
+  `packet_id`, ISR-timed external start + horn/light/beep, streams over USB
+  serial. Wi-Fi provisioned over BLE.
+- **`src/server.ts`** — Node server: serial → race state machine → live dashboard
+  (`static/`) + `/remote`, with `.do3`/`.lif` export.
+- **`src/publish.ts`** — completed heats → SQLite → single-file public results page.
+- **`HARDWARE.md`** — start-signal kit (button/beacon/megaphone) and DIY finish
+  touchpads.
+
+## Running
+
+```bash
+npm install
+npm start          # serial → dashboard + /remote over WebSocket
+npm run publish    # build the public results page
+```
+
+Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth). Sample data
+lives in `roster.sample.csv` / `events.sample.csv`; copy them to
+`roster.csv` / `events.csv` (the live files are git-ignored).

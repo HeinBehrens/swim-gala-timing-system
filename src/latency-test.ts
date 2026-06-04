@@ -22,9 +22,32 @@
  * timed against the start. What matters is each button's *own* latency
  * variance, which is what burst width + redundancy capture.
  *
- * Platform note: on macOS, CoreBluetooth coalesces scan callbacks and exposes
- * no hardware RX timestamp, so burst-width numbers here include OS scheduling
- * jitter and are pessimistic. A Linux/BlueZ host (e.g. the Pi) will do better.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * IMPORTANT — this test does NOT reflect production timing accuracy.
+ *
+ * In the real system ALL timing happens ON THE ESP32, never on this host. The
+ * firmware stamps every press with the on-chip microsecond clock
+ * (`esp_timer_get_time()`) inside the BLE receive callback, and the external
+ * START is captured in a hardware ISR at the falling edge — both readings come
+ * from the SAME monotonic ESP clock. A race time is therefore just
+ * `finish_µs − start_µs`, a difference of two ESP timestamps. The host (this
+ * Node process) only does bookkeeping: matching presses to the start and
+ * subtracting. See firmware esp32_shelly_scanner.ino (v11), onResult()/onStartIsr().
+ *
+ * Why that beats timing on macOS (what this script does):
+ *   • CoreBluetooth coalesces scan callbacks and exposes no hardware RX
+ *     timestamp, so a host stamp is taken whenever Node happens to be scheduled
+ *     — tens of ms of variable OS/event-loop/USB-serial jitter per event.
+ *   • That jitter is INDEPENDENT per event, so it does NOT cancel between start
+ *     and finish — it lands directly in the result.
+ *   • On the ESP32 the stamp is taken microseconds after the radio/edge event on
+ *     a bare-metal MCU with no OS scheduler, and because start and finish use one
+ *     clock, ANY downstream USB/host latency cancels exactly (a 200 ms-late
+ *     serial line still yields the correct elapsed time).
+ *
+ * So the burst-width / jitter numbers below are a PESSIMISTIC, host-side proxy
+ * for radio reliability (drops, redundancy) — useful for choosing buttons and
+ * placement — but they are not the timing error the swimmers actually get.
  *
  * Usage:
  *   npx tsx src/latency-test.ts
