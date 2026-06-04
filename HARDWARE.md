@@ -56,6 +56,9 @@ Safe GPIOs only; avoid C5 strapping pins 7/25/26/27/28 + MTMS/MTDI, USB 13/14, U
  Set loudness with the megaphone's volume knob.
 ```
 
+> Where to buy the **Shelly BLU buttons** and the **ESP32-C5 board** (UK / EU /
+> AliExpress, with prices): see [BUYING.md](BUYING.md).
+
 ## Bill of materials (UK)
 | Part | Purpose | Qty | Link |
 |---|---|---|---|

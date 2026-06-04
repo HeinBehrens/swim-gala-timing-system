@@ -55,6 +55,8 @@ not cancel and shows up as timing error.
 - **`src/publish.ts`** — completed heats → SQLite → single-file public results page.
 - **`HARDWARE.md`** — start-signal kit (button/beacon/megaphone) and DIY finish
   touchpads.
+- **`BUYING.md`** — where to buy the Shelly BLU buttons and the ESP32-C5 board
+  (UK / EU / AliExpress, with prices).
 
 ## Running
 
