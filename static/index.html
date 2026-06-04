@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SwimTimer Pro — 6-Lane Wireless Timing System Dashboard">
+  <meta name="theme-color" content="#0a0e1a">
+  <title>SwimTimer Pro — 6-Lane Wireless Timing</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>💧</text></svg>">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="top-nav">
+    <div class="nav-left">
+      <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 32 32" width="32" height="32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="dropGrad" x1="16" y1="2" x2="16" y2="30" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#00f0ff"/>
+              <stop offset="100%" stop-color="#0080ff"/>
+            </linearGradient>
+          </defs>
+          <path d="M16 2C16 2 6 14 6 20a10 10 0 0020 0C26 14 16 2 16 2z" fill="url(#dropGrad)" opacity="0.9"/>
+          <path d="M12 20c0-3 2-6 4-8" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        </svg>
+        <h1 class="logo-text">SwimTimer <span class="logo-pro">Pro</span></h1>
+      </div>
+    </div>
+    <div class="nav-right">
+      <div class="connection-indicators">
+        <div class="conn-dot" id="ble-status" data-label="BLE" title="Bluetooth LE Connection">
+          <span class="dot dot-unknown"></span>
+          <span class="conn-label">BLE</span>
+        </div>
+        <div class="conn-dot" id="wifi-status" data-label="Wi-Fi" title="Gateway Wi-Fi Connection">
+          <span class="dot dot-unknown"></span>
+          <span class="conn-label">Wi-Fi</span>
+        </div>
+      </div>
+      <button class="btn-icon settings-toggle" id="settings-toggle-btn" title="Settings" aria-label="Open Settings">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Race Control Area -->
+  <main class="dashboard">
+    <section id="race-controls" class="race-controls">
+      <div class="event-heat-bar glass-card">
+        <div class="input-group">
+          <label for="event-number">Event</label>
+          <input type="number" id="event-number" min="1" max="999" value="1" class="num-input">
+        </div>
+        <div class="input-divider"></div>
+        <div class="input-group">
+          <label for="heat-number">Heat</label>
+          <input type="number" id="heat-number" min="1" max="99" value="1" class="num-input">
+        </div>
+        <div class="race-state-badge" id="race-state-badge">
+          <span class="state-dot"></span>
+          <span class="state-text">IDLE</span>
+        </div>
+      </div>
+
+      <div class="master-timer-container">
+        <div class="master-timer" id="master-timer">00:00.00</div>
+      </div>
+
+      <div class="controls-row">
+        <button class="btn btn-prepare" id="btn-prepare" title="Prepare Race (P)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span>Prepare</span>
+        </button>
+        <button class="btn btn-start" id="btn-start" title="Start Race (Space)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>Start</span>
+        </button>
+        <button class="btn btn-stop" id="btn-stop" title="Stop Race (Space)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          <span>Stop</span>
+        </button>
+        <button class="btn btn-reset" id="btn-reset" title="Reset Race (R)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          <span>Reset</span>
+        </button>
+        <button class="btn btn-export" id="btn-export" title="Export Results (E)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Export</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 6-Lane Grid -->
+    <section id="lane-grid" class="lane-grid">
+      <div class="lane-card glass-card" data-lane="1">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="1">1</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+
+      <div class="lane-card glass-card" data-lane="2">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="2">2</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+
+      <div class="lane-card glass-card" data-lane="3">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="3">3</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+
+      <div class="lane-card glass-card" data-lane="4">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="4">4</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+
+      <div class="lane-card glass-card" data-lane="5">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="5">5</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+
+      <div class="lane-card glass-card" data-lane="6">
+        <div class="lane-header">
+          <div class="lane-badge" data-lane-num="6">6</div>
+          <div class="lane-meta">
+            <span class="lane-status status-waiting">Waiting</span>
+            <div class="battery-indicator" title="Battery">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="10" x2="23" y2="14"/><rect class="battery-fill" x="3" y="8" width="14" height="8" rx="1" fill="currentColor" opacity="0.3"/></svg>
+              <span class="battery-text">--%</span>
+            </div>
+          </div>
+        </div>
+        <div class="lane-timer">--:--.--</div>
+        <div class="lane-place-badge hidden"></div>
+      </div>
+    </section>
+
+    <!-- Results Table -->
+    <section id="results-panel" class="results-panel hidden">
+      <div class="results-header">
+        <h2 class="section-title">Race Results</h2>
+        <div class="results-actions">
+          <button class="btn btn-sm btn-export-do3" id="btn-export-do3" title="Download .do3 file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            .do3
+          </button>
+          <button class="btn btn-sm btn-export-lif" id="btn-export-lif" title="Download .lif file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            .lif
+          </button>
+        </div>
+      </div>
+      <div class="results-table-wrap glass-card">
+        <table class="results-table" id="results-table">
+          <thead>
+            <tr>
+              <th>Place</th>
+              <th>Lane</th>
+              <th>Time</th>
+              <th>Delta</th>
+            </tr>
+          </thead>
+          <tbody id="results-tbody">
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings Sidebar -->
+  <div class="settings-overlay" id="settings-overlay"></div>
+  <aside id="settings-panel" class="settings-panel">
+    <div class="settings-header">
+      <h2>Settings</h2>
+      <button class="btn-icon settings-close" id="settings-close-btn" aria-label="Close Settings">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-body">
+      <div class="settings-section">
+        <h3 class="settings-section-title">Lane MAC Addresses</h3>
+        <div class="settings-field" data-lane-cfg="1">
+          <label for="mac-lane-1">Lane 1</label>
+          <input type="text" id="mac-lane-1" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="1">
+        </div>
+        <div class="settings-field" data-lane-cfg="2">
+          <label for="mac-lane-2">Lane 2</label>
+          <input type="text" id="mac-lane-2" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="2">
+        </div>
+        <div class="settings-field" data-lane-cfg="3">
+          <label for="mac-lane-3">Lane 3</label>
+          <input type="text" id="mac-lane-3" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="3">
+        </div>
+        <div class="settings-field" data-lane-cfg="4">
+          <label for="mac-lane-4">Lane 4</label>
+          <input type="text" id="mac-lane-4" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="4">
+        </div>
+        <div class="settings-field" data-lane-cfg="5">
+          <label for="mac-lane-5">Lane 5</label>
+          <input type="text" id="mac-lane-5" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="5">
+        </div>
+        <div class="settings-field" data-lane-cfg="6">
+          <label for="mac-lane-6">Lane 6</label>
+          <input type="text" id="mac-lane-6" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF" data-lane="6">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Button Registration</h3>
+        <p class="enroll-status" id="enroll-status">Re-assign lanes by the order you press the buttons: Lane 1 → … → Lane 6 → Starter.</p>
+        <button class="btn btn-danger" id="btn-reenroll">Re-enroll Buttons</button>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Starter Button</h3>
+        <div class="settings-field">
+          <label for="mac-starter">Starter MAC</label>
+          <input type="text" id="mac-starter" class="text-input mac-input" placeholder="AA:BB:CC:DD:EE:FF">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Wi-Fi (Bluetooth setup)</h3>
+        <p class="enroll-status" id="wifi-prov-status">Send the gateway's Wi-Fi credentials to the ESP32 over Bluetooth. It saves them to flash and joins the network — no cable needed.</p>
+        <div class="settings-field">
+          <label for="wifi-ssid">Network name (SSID)</label>
+          <input type="text" id="wifi-ssid" class="text-input" placeholder="MyNetwork">
+        </div>
+        <div class="settings-field">
+          <label for="wifi-pass">Password</label>
+          <input type="password" id="wifi-pass" class="text-input" placeholder="Wi-Fi password">
+        </div>
+        <button class="btn btn-sim" id="btn-wifi-prov">Configure Wi-Fi over Bluetooth</button>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Home Assistant</h3>
+        <div class="settings-field">
+          <label for="ha-url">HA URL</label>
+          <input type="text" id="ha-url" class="text-input" placeholder="http://homeassistant.local:8123">
+        </div>
+        <div class="settings-field">
+          <label for="ha-token">HA Token</label>
+          <input type="password" id="ha-token" class="text-input" placeholder="Long-lived access token">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Simulation Controls</h3>
+        <div class="sim-controls">
+          <button class="btn btn-sim btn-sim-start" id="btn-sim-start">Simulate Start</button>
+          <div class="sim-lanes-grid">
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="1">Sim Lane 1</button>
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="2">Sim Lane 2</button>
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="3">Sim Lane 3</button>
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="4">Sim Lane 4</button>
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="5">Sim Lane 5</button>
+            <button class="btn btn-sim btn-sim-lane" data-sim-lane="6">Sim Lane 6</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Toast notification container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

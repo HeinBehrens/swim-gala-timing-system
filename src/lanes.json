@@ -1,0 +1,14 @@
+{
+  "port": "/dev/cu.usbserial-10",
+  "baud": 115200,
+  "enrolledAt": "2026-06-02T00:00:00.000Z",
+  "buttons": [
+    { "role": "lane1", "label": "Lane 1", "mac": "0c:ef:f6:b7:83:ee" },
+    { "role": "lane2", "label": "Lane 2", "mac": "7c:c6:b6:61:fe:39" },
+    { "role": "lane3", "label": "Lane 3", "mac": "38:39:8f:98:01:dd" },
+    { "role": "lane4", "label": "Lane 4", "mac": "7c:c6:b6:04:90:f9" },
+    { "role": "lane5", "label": "Lane 5", "mac": "7c:c6:b6:08:d4:bd" },
+    { "role": "lane6", "label": "Lane 6", "mac": "7c:c6:b6:58:6f:c6" },
+    { "role": "start", "label": "Starter", "mac": "7c:c6:b6:73:e8:c0" }
+  ]
+}

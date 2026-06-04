@@ -1,0 +1,35 @@
+{
+  "name": "swim-gala-timing-system",
+  "version": "1.0.0",
+  "description": "6-Lane Wireless Swim Gala Timing System using Shelly BLU Button 1 Tough",
+  "type": "module",
+  "scripts": {
+    "discover": "tsx src/discover.ts",
+    "enroll": "tsx src/enroll.ts",
+    "monitor": "tsx src/monitor.ts",
+    "publish": "tsx src/publish.ts",
+    "latency": "tsx src/latency-test.ts",
+    "simul": "tsx src/simultaneous-test.ts",
+    "countdown": "tsx src/countdown-test.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "serve": "node dist/server.js"
+  },
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-25",
+    "@serialport/parser-readline": "^13.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.10.0",
+    "express": "^5.1.0",
+    "serialport": "^13.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

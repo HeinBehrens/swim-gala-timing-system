@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0e1a">
+  <title>SwimTimer Remote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0e1a;
+      --bg-card: rgba(17, 24, 39, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --cyan: #00f0ff;
+      --green: #00d97e;
+      --red: #ff6b6b;
+      --amber: #ffb347;
+      --font: 'Outfit', system-ui, sans-serif;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 20% 50%, rgba(0, 240, 255, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(0, 217, 126, 0.04) 0%, transparent 50%);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      padding-bottom: calc(12px + var(--safe-bottom));
+      gap: 10px;
+    }
+
+    /* ── Header ────────────────────────────────────── */
+    .header {
+      text-align: center;
+      flex-shrink: 0;
+      padding: 8px 0;
+    }
+    .header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header .status {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .header .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+    }
+    .header .status .dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    /* ── Race Info Bar ─────────────────────────────── */
+    .race-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-shrink: 0;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+    }
+    .race-info .timer {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--text);
+      min-width: 120px;
+      text-align: center;
+    }
+    .race-info .timer.running {
+      color: var(--cyan);
+      text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+    }
+    .race-info .state-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(100, 116, 139, 0.3);
+      color: var(--text-dim);
+    }
+    .race-info .state-badge.ready { background: rgba(0, 240, 255, 0.15); color: var(--cyan); }
+    .race-info .state-badge.running { background: rgba(0, 217, 126, 0.15); color: var(--green); }
+    .race-info .state-badge.completed { background: rgba(255, 179, 71, 0.15); color: var(--amber); }
+
+    /* ── Lane Selection ────────────────────────────── */
+    .lane-select-label {
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--text-dim);
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    /* ── Lane Button Grid ──────────────────────────── */
+    .lane-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .lane-btn {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border: 2px solid var(--glass-border);
+      border-radius: 16px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text);
+      font-family: var(--font);
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 0.1s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+    }
+    .lane-btn:active {
+      transform: scale(0.95);
+    }
+    .lane-btn .lane-num {
+      font-size: clamp(2.5rem, 10vw, 4rem);
+      font-weight: 800;
+      line-height: 1;
+      opacity: 0.9;
+    }
+    .lane-btn .lane-label {
+      font-size: 0.7rem;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+    }
+    .lane-btn .lane-time {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      min-height: 1.2em;
+    }
+
+    /* Lane-specific accent colors */
+    .lane-btn[data-lane="1"] { --lane-color: #ff6b6b; }
+    .lane-btn[data-lane="2"] { --lane-color: #00f0ff; }
+    .lane-btn[data-lane="3"] { --lane-color: #00d97e; }
+    .lane-btn[data-lane="4"] { --lane-color: #ffb347; }
+    .lane-btn[data-lane="5"] { --lane-color: #a78bfa; }
+    .lane-btn[data-lane="6"] { --lane-color: #f472b6; }
+
+    .lane-btn .lane-num { color: var(--lane-color); }
+    .lane-btn:active {
+      border-color: var(--lane-color);
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.3), inset 0 0 30px rgba(255, 255, 255, 0.03);
+    }
+
+    /* Ripple effect */
+    .lane-btn .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: var(--lane-color);
+      opacity: 0.3;
+      transform: scale(0);
+      animation: ripple-anim 0.6s ease-out forwards;
+      pointer-events: none;
+    }
+    @keyframes ripple-anim {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    /* Pressed flash */
+    .lane-btn.pressed {
+      border-color: var(--lane-color) !important;
+      box-shadow: 0 0 25px color-mix(in srgb, var(--lane-color) 30%, transparent);
+    }
+    .lane-btn.pressed .lane-time {
+      color: var(--lane-color);
+    }
+
+    /* ── Bottom Controls ───────────────────────────── */
+    .bottom-controls {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .ctrl-btn {
+      flex: 1;
+      padding: 14px 8px;
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: transform 0.1s, background 0.2s;
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+    }
+    .ctrl-btn:active { transform: scale(0.95); }
+    .ctrl-btn.start {
+      background: linear-gradient(135deg, rgba(0, 217, 126, 0.25), rgba(0, 217, 126, 0.1));
+      border-color: rgba(0, 217, 126, 0.3);
+      color: var(--green);
+    }
+    .ctrl-btn.stop {
+      background: linear-gradient(135deg, rgba(255, 107, 107, 0.25), rgba(255, 107, 107, 0.1));
+      border-color: rgba(255, 107, 107, 0.3);
+      color: var(--red);
+    }
+
+    /* ── Mode Selector ─────────────────────────────── */
+    .mode-bar {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px 8px;
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      background: var(--bg-card);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: var(--text-dim);
+      font-family: var(--font);
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+    }
+    .mode-btn:active { transform: scale(0.95); }
+    .mode-btn.active {
+      background: rgba(0, 240, 255, 0.1);
+      border-color: rgba(0, 240, 255, 0.3);
+      color: var(--cyan);
+    }
+
+    /* ── Toast ─────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-120%);
+      padding: 10px 20px;
+      border-radius: 10px;
+      background: rgba(17, 24, 39, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 600;
+      z-index: 1000;
+      animation: toast-slide 2.5s ease forwards;
+      pointer-events: none;
+    }
+    .toast.success { border-color: rgba(0, 217, 126, 0.4); color: var(--green); }
+    .toast.error { border-color: rgba(255, 107, 107, 0.4); color: var(--red); }
+    @keyframes toast-slide {
+      0% { transform: translateX(-50%) translateY(-120%); }
+      15% { transform: translateX(-50%) translateY(0); }
+      85% { transform: translateX(-50%) translateY(0); opacity: 1; }
+      100% { transform: translateX(-50%) translateY(-120%); opacity: 0; }
+    }
+
+    /* ── Assign-lane overlay ───────────────────────── */
+    .assign-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .assign-overlay.visible { display: flex; }
+    .assign-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 30px;
+      text-align: center;
+      max-width: 300px;
+    }
+    .assign-card h2 {
+      font-size: 1.1rem;
+      margin-bottom: 6px;
+    }
+    .assign-card p {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+    .assign-lane-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .assign-lane-btn {
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid var(--glass-border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 1.2rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .assign-lane-btn:active {
+      transform: scale(0.92);
+      background: rgba(0, 240, 255, 0.15);
+      border-color: var(--cyan);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🏊 SwimTimer Remote</h1>
+    <div class="status">
+      <span class="dot" id="ws-dot"></span>
+      <span id="ws-status-text">Connecting...</span>
+    </div>
+  </div>
+
+  <!-- Race Info -->
+  <div class="race-info">
+    <span class="state-badge" id="state-badge">IDLE</span>
+    <span class="timer" id="master-timer">00:00.00</span>
+  </div>
+
+  <!-- Mode Bar -->
+  <div class="mode-bar">
+    <button class="mode-btn active" id="mode-all" onclick="setMode('all')">All Lanes</button>
+    <button class="mode-btn" id="mode-single" onclick="setMode('single')">My Lane</button>
+  </div>
+
+  <!-- Lane Grid (All Lanes mode) -->
+  <div class="lane-grid" id="lane-grid">
+    <button class="lane-btn" data-lane="1" onclick="pressLane(1, event)">
+      <span class="lane-num">1</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-1"></span>
+    </button>
+    <button class="lane-btn" data-lane="2" onclick="pressLane(2, event)">
+      <span class="lane-num">2</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-2"></span>
+    </button>
+    <button class="lane-btn" data-lane="3" onclick="pressLane(3, event)">
+      <span class="lane-num">3</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-3"></span>
+    </button>
+    <button class="lane-btn" data-lane="4" onclick="pressLane(4, event)">
+      <span class="lane-num">4</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-4"></span>
+    </button>
+    <button class="lane-btn" data-lane="5" onclick="pressLane(5, event)">
+      <span class="lane-num">5</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-5"></span>
+    </button>
+    <button class="lane-btn" data-lane="6" onclick="pressLane(6, event)">
+      <span class="lane-num">6</span>
+      <span class="lane-label">Lane</span>
+      <span class="lane-time" id="lane-time-6"></span>
+    </button>
+  </div>
+
+  <!-- Single Lane Button (My Lane mode, hidden by default) -->
+  <button class="lane-btn" id="single-lane-btn" style="display:none; flex:1; border-radius:20px;" onclick="pressMyLane(event)">
+    <span class="lane-num" id="single-lane-num">1</span>
+    <span class="lane-label">My Lane</span>
+    <span class="lane-time" id="single-lane-time"></span>
+  </button>
+
+  <!-- Bottom Controls -->
+  <div class="bottom-controls">
+    <button class="ctrl-btn start" id="btn-start" onclick="sendStart()">▶ Start</button>
+    <button class="ctrl-btn stop" id="btn-stop" onclick="sendStop()">■ Stop</button>
+  </div>
+
+  <!-- Lane Assignment Overlay -->
+  <div class="assign-overlay" id="assign-overlay">
+    <div class="assign-card">
+      <h2>Select Your Lane</h2>
+      <p>Choose the lane you are timing</p>
+      <div class="assign-lane-grid">
+        <button class="assign-lane-btn" onclick="assignLane(1)">1</button>
+        <button class="assign-lane-btn" onclick="assignLane(2)">2</button>
+        <button class="assign-lane-btn" onclick="assignLane(3)">3</button>
+        <button class="assign-lane-btn" onclick="assignLane(4)">4</button>
+        <button class="assign-lane-btn" onclick="assignLane(5)">5</button>
+        <button class="assign-lane-btn" onclick="assignLane(6)">6</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================================================================
+       SwimTimer Remote — Mobile Phone Timing Controller
+       ================================================================ */
+
+    let ws = null;
+    let raceState = 'idle';
+    let startTimeServer = null;
+    let clockRAF = null;
+    let myLane = parseInt(localStorage.getItem('myLane') || '1');
+    let currentMode = 'all';
+    let reconnectDelay = 1000;
+    const MAX_RECONNECT = 10000;
+
+    // ── WebSocket ───────────────────────────────────
+
+    function connectWS() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+      ws.onopen = () => {
+        reconnectDelay = 1000;
+        document.getElementById('ws-dot').classList.add('connected');
+        document.getElementById('ws-status-text').textContent = 'Connected';
+      };
+
+      ws.onclose = () => {
+        document.getElementById('ws-dot').classList.remove('connected');
+        document.getElementById('ws-status-text').textContent = 'Reconnecting...';
+        setTimeout(connectWS, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT);
+      };
+
+      ws.onerror = () => { ws.close(); };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          handleMessage(msg);
+        } catch (e) { /* ignore parse errors */ }
+      };
+    }
+
+    function send(obj) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(obj));
+      }
+    }
+
+    // ── Message Handling ────────────────────────────
+
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'race_state':
+          raceState = msg.state;
+          startTimeServer = msg.start_time || null;
+          updateStateBadge();
+          if (msg.state === 'running') {
+            startClock(msg.elapsed || 0);
+          } else {
+            stopClock();
+            if (msg.elapsed != null) updateTimerDisplay(msg.elapsed);
+          }
+          break;
+
+        case 'lane_time':
+          updateLaneTime(msg.lane, msg.time, msg.is_finish);
+          if (msg.is_finish) {
+            hapticFeedback();
+          }
+          break;
+
+        case 'full_state':
+          raceState = msg.state || 'idle';
+          startTimeServer = msg.start_time || null;
+          updateStateBadge();
+          if (msg.lane_times) {
+            for (const [lane, times] of Object.entries(msg.lane_times)) {
+              if (times.length > 0) {
+                const lastTime = times[times.length - 1];
+                const finished = msg.lane_finished ? msg.lane_finished[lane] : false;
+                updateLaneTime(parseInt(lane), lastTime, finished);
+              }
+            }
+          }
+          if (raceState === 'running') {
+            startClock(msg.elapsed || 0);
+          } else if (msg.elapsed != null) {
+            updateTimerDisplay(msg.elapsed);
+          }
+          break;
+
+        default:
+          break;
+      }
+    }
+
+    // ── UI Updates ──────────────────────────────────
+
+    function updateStateBadge() {
+      const badge = document.getElementById('state-badge');
+      badge.textContent = raceState.toUpperCase();
+      badge.className = 'state-badge ' + raceState;
+    }
+
+    function updateTimerDisplay(seconds) {
+      const el = document.getElementById('master-timer');
+      el.textContent = formatTime(seconds);
+      el.classList.toggle('running', raceState === 'running');
+    }
+
+    function updateLaneTime(lane, time, isFinish) {
+      // All-lanes mode
+      const el = document.getElementById(`lane-time-${lane}`);
+      if (el) {
+        el.textContent = formatTime(time);
+        if (isFinish) {
+          const btn = el.closest('.lane-btn');
+          btn.classList.add('pressed');
+        }
+      }
+      // Single-lane mode
+      if (lane === myLane) {
+        document.getElementById('single-lane-time').textContent = formatTime(time);
+        if (isFinish) {
+          document.getElementById('single-lane-btn').classList.add('pressed');
+        }
+      }
+    }
+
+    // ── Clock ───────────────────────────────────────
+
+    let clockStartLocal = null;
+    let clockBaseElapsed = 0;
+
+    function startClock(baseElapsed) {
+      stopClock();
+      clockBaseElapsed = baseElapsed || 0;
+      clockStartLocal = performance.now();
+      tickClock();
+    }
+
+    function tickClock() {
+      const now = performance.now();
+      const elapsed = clockBaseElapsed + (now - clockStartLocal) / 1000;
+      updateTimerDisplay(elapsed);
+      clockRAF = requestAnimationFrame(tickClock);
+    }
+
+    function stopClock() {
+      if (clockRAF) {
+        cancelAnimationFrame(clockRAF);
+        clockRAF = null;
+      }
+    }
+
+    // ── Time Formatting ─────────────────────────────
+
+    function formatTime(sec) {
+      if (sec == null || sec < 0) return '00:00.00';
+      const mins = Math.floor(sec / 60);
+      const secs = sec - mins * 60;
+      const whole = Math.floor(secs);
+      const hundredths = Math.floor((secs - whole) * 100);
+      return `${String(mins).padStart(2, '0')}:${String(whole).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+    }
+
+    // ── Actions ─────────────────────────────────────
+
+    function pressLane(lane, evt) {
+      send({ action: 'simulate_press', lane: lane });
+      showRipple(evt);
+      hapticFeedback();
+      showToast(`Lane ${lane} pressed`, 'success');
+    }
+
+    function pressMyLane(evt) {
+      pressLane(myLane, evt);
+    }
+
+    function sendStart() {
+      if (raceState === 'idle') {
+        send({ action: 'prepare_race', event_num: 1, heat_num: 1 });
+        setTimeout(() => {
+          send({ action: 'start_race' });
+        }, 300);
+      } else if (raceState === 'ready') {
+        send({ action: 'start_race' });
+      } else if (raceState === 'completed' || raceState === 'idle') {
+        send({ action: 'prepare_race', event_num: 1, heat_num: 1 });
+      }
+      hapticFeedback();
+    }
+
+    function sendStop() {
+      if (raceState === 'running') {
+        send({ action: 'stop_race' });
+      } else {
+        send({ action: 'reset_race' });
+      }
+      hapticFeedback();
+    }
+
+    // ── Mode Switching ──────────────────────────────
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('mode-all').classList.toggle('active', mode === 'all');
+      document.getElementById('mode-single').classList.toggle('active', mode === 'single');
+
+      const grid = document.getElementById('lane-grid');
+      const single = document.getElementById('single-lane-btn');
+
+      if (mode === 'all') {
+        grid.style.display = 'grid';
+        single.style.display = 'none';
+      } else {
+        grid.style.display = 'none';
+        single.style.display = 'flex';
+        single.setAttribute('data-lane', myLane);
+        document.getElementById('single-lane-num').textContent = myLane;
+        // Show lane picker overlay
+        document.getElementById('assign-overlay').classList.add('visible');
+      }
+    }
+
+    function assignLane(lane) {
+      myLane = lane;
+      localStorage.setItem('myLane', lane);
+      document.getElementById('assign-overlay').classList.remove('visible');
+      const single = document.getElementById('single-lane-btn');
+      single.setAttribute('data-lane', lane);
+      document.getElementById('single-lane-num').textContent = lane;
+      // Set the accent color for single button
+      const colors = { 1: '#ff6b6b', 2: '#00f0ff', 3: '#00d97e', 4: '#ffb347', 5: '#a78bfa', 6: '#f472b6' };
+      single.style.setProperty('--lane-color', colors[lane] || '#00f0ff');
+      showToast(`Assigned to Lane ${lane}`, 'success');
+    }
+
+    // ── Visual Effects ──────────────────────────────
+
+    function showRipple(evt) {
+      const btn = evt.currentTarget;
+      const rect = btn.getBoundingClientRect();
+
+      let x, y;
+      if (evt.touches && evt.touches.length > 0) {
+        x = evt.touches[0].clientX - rect.left;
+        y = evt.touches[0].clientY - rect.top;
+      } else {
+        x = evt.clientX - rect.left;
+        y = evt.clientY - rect.top;
+      }
+
+      const ripple = document.createElement('span');
+      ripple.className = 'ripple';
+      const size = Math.max(rect.width, rect.height);
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = (x - size / 2) + 'px';
+      ripple.style.top = (y - size / 2) + 'px';
+      btn.appendChild(ripple);
+      ripple.addEventListener('animationend', () => ripple.remove());
+    }
+
+    function hapticFeedback() {
+      if (navigator.vibrate) {
+        navigator.vibrate(30);
+      }
+    }
+
+    function showToast(message, type) {
+      const toast = document.createElement('div');
+      toast.className = 'toast ' + (type || '');
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      toast.addEventListener('animationend', () => toast.remove());
+    }
+
+    // ── Prevent Double-Tap Zoom ─────────────────────
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', (e) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) { e.preventDefault(); }
+      lastTouchEnd = now;
+    }, false);
+
+    // ── Screen Wake Lock ────────────────────────────
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          await navigator.wakeLock.request('screen');
+        }
+      } catch (e) { /* Wake lock not supported or denied */ }
+    }
+
+    // ── Init ────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      connectWS();
+      requestWakeLock();
+      // Restore single-lane color
+      const colors = { 1: '#ff6b6b', 2: '#00f0ff', 3: '#00d97e', 4: '#ffb347', 5: '#a78bfa', 6: '#f472b6' };
+      document.getElementById('single-lane-btn').style.setProperty('--lane-color', colors[myLane] || '#00f0ff');
+    });
+
+    // Re-acquire wake lock when page becomes visible again
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    });
+  </script>
+</body>
+</html>

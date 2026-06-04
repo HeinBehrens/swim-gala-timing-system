@@ -1,0 +1,25 @@
+# Dependencies / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Live gala data — contains real swimmer PII (names/ages of minors). DO NOT COMMIT.
+roster.csv
+events.csv
+results.db
+results.db-shm
+results.db-wal
+exports/
+public/results.html
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# OS / editor
+.DS_Store
+
+# Claude local settings
+.claude/settings.local.json
