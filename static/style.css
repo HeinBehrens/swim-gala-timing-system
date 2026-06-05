@@ -92,6 +92,25 @@ body::after {
   100% { transform: translate(-20px, -15px); }
 }
 
+/* ── Race-phase background signal ──
+   Whole-deck colour cue set on <body> by setRaceState():
+   BLACK at rest (idle/completed), GREEN when armed/ready, YELLOW while running.
+   Overrides the body::before mesh layer that paints the visible background. */
+body.race-bg-idle::before,
+body.race-bg-completed::before {
+  background: #000000;
+}
+body.race-bg-ready::before {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 25%, rgba(0, 230, 130, 0.40) 0%, transparent 65%),
+    linear-gradient(180deg, #043d24 0%, #066b3a 50%, #043d24 100%);
+}
+body.race-bg-running::before {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 25%, rgba(255, 225, 60, 0.50) 0%, transparent 65%),
+    linear-gradient(180deg, #7a6500 0%, #a88a00 50%, #7a6500 100%);
+}
+
 /* ── Glass Card Base ── */
 .glass-card {
   background: var(--bg-card);

@@ -709,6 +709,7 @@ function main(): void {
   app.use(express.json());
   app.get("/", (_req, res) => res.sendFile(join(STATIC_DIR, "index.html")));
   app.get("/remote", (_req, res) => res.sendFile(join(STATIC_DIR, "remote.html")));
+  app.get("/view", (_req, res) => res.sendFile(join(STATIC_DIR, "view.html")));
   app.get("/api/state", (_req, res) => res.json(fullState()));
   app.get("/api/exports", (_req, res) => {
     try { res.json({ files: readdirSync(EXPORTS_DIR).sort() }); }
@@ -797,6 +798,7 @@ function main(): void {
     console.log(`  🏊 Swim Gala Timing System (TypeScript)`);
     console.log(`  Dashboard:    http://localhost:${PORT}`);
     console.log(`  Phone remote: http://localhost:${PORT}/remote`);
+    console.log(`  Live view:    http://localhost:${PORT}/view`);
     console.log(`  ESP32 input:  ${transportLabel}`);
     console.log();
   });

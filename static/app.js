@@ -536,6 +536,12 @@ class SwimTimerApp {
     const prevState = this.raceState;
     this.raceState = state;
 
+    // Whole-deck background cue: red until armed, green when ready to start,
+    // black while the race is running. (Styled in style.css.)
+    document.body.classList.remove(
+      'race-bg-idle', 'race-bg-ready', 'race-bg-running', 'race-bg-completed');
+    document.body.classList.add(`race-bg-${state}`);
+
     // Update state badge
     const badge = this.els.raceStateBadge;
     badge.className = 'race-state-badge';

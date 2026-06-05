@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>SwimTimer — Live View</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0e1a;
+      --bg-card: rgba(17, 24, 39, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --cyan: #00f0ff;
+      --green: #00d97e;
+      --red: #ff6b6b;
+      --amber: #ffb347;
+      --font: 'Outfit', system-ui, sans-serif;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 20% 50%, rgba(0, 240, 255, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(0, 217, 126, 0.04) 0%, transparent 50%);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      padding-bottom: calc(12px + var(--safe-bottom));
+      gap: 10px;
+      transition: background-color 250ms ease;
+    }
+
+    /* ── Race-phase background cue (mirrors dashboard & remote) ──
+       BLACK at rest (idle/completed), GREEN when ready, YELLOW while running. */
+    body.race-bg-idle,
+    body.race-bg-completed {
+      background: #000000;
+      background-image: none;
+    }
+    body.race-bg-ready {
+      background: #066b3a;
+      background-image:
+        radial-gradient(ellipse 90% 60% at 50% 20%, rgba(0, 230, 130, 0.45) 0%, transparent 65%),
+        linear-gradient(180deg, #043d24 0%, #066b3a 50%, #043d24 100%);
+    }
+    body.race-bg-running {
+      background: #a88a00;
+      background-image:
+        radial-gradient(ellipse 90% 60% at 50% 20%, rgba(255, 225, 60, 0.55) 0%, transparent 65%),
+        linear-gradient(180deg, #7a6500 0%, #a88a00 50%, #7a6500 100%);
+    }
+
+    /* ── Header ────────────────────────────────────── */
+    .header {
+      text-align: center;
+      flex-shrink: 0;
+      padding: 8px 0;
+    }
+    .header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header .status {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .header .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+    }
+    .header .status .dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+    .header .view-tag {
+      display: inline-block;
+      margin-left: 4px;
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      padding: 1px 6px;
+    }
+
+    /* ── Race Info Bar ─────────────────────────────── */
+    .race-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-shrink: 0;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+    }
+    .race-info .timer {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--text);
+      min-width: 140px;
+      text-align: center;
+    }
+    .race-info .timer.running {
+      color: var(--cyan);
+      text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+    }
+    .race-info .state-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(100, 116, 139, 0.3);
+      color: var(--text-dim);
+    }
+    .race-info .state-badge.ready { background: rgba(0, 240, 255, 0.15); color: var(--cyan); }
+    .race-info .state-badge.running { background: rgba(0, 217, 126, 0.15); color: var(--green); }
+    .race-info .state-badge.completed { background: rgba(255, 179, 71, 0.15); color: var(--amber); }
+
+    /* ── Lane Grid (read-only tiles) ───────────────── */
+    .lane-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .lane-tile {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border: 2px solid var(--glass-border);
+      border-radius: 16px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text);
+      overflow: hidden;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .lane-tile .lane-num {
+      font-size: clamp(2.5rem, 10vw, 4rem);
+      font-weight: 800;
+      line-height: 1;
+      opacity: 0.9;
+    }
+    .lane-tile .lane-label {
+      font-size: 0.7rem;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+    }
+    .lane-tile .lane-time {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      min-height: 1.2em;
+    }
+
+    /* Lane-specific accent colors */
+    .lane-tile[data-lane="1"] { --lane-color: #ff6b6b; }
+    .lane-tile[data-lane="2"] { --lane-color: #00f0ff; }
+    .lane-tile[data-lane="3"] { --lane-color: #00d97e; }
+    .lane-tile[data-lane="4"] { --lane-color: #ffb347; }
+    .lane-tile[data-lane="5"] { --lane-color: #a78bfa; }
+    .lane-tile[data-lane="6"] { --lane-color: #f472b6; }
+    .lane-tile .lane-num { color: var(--lane-color); }
+
+    /* Finished flash */
+    .lane-tile.finished {
+      border-color: var(--lane-color);
+      box-shadow: 0 0 25px color-mix(in srgb, var(--lane-color) 30%, transparent);
+    }
+    .lane-tile.finished .lane-time { color: var(--lane-color); }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🏊 SwimTimer — Live View</h1>
+    <div class="status">
+      <span class="dot" id="ws-dot"></span>
+      <span id="ws-status-text">Connecting...</span>
+      <span class="view-tag">View only</span>
+    </div>
+  </div>
+
+  <!-- Race Info -->
+  <div class="race-info">
+    <span class="state-badge" id="state-badge">IDLE</span>
+    <span class="timer" id="master-timer">00:00.00</span>
+  </div>
+
+  <!-- Lane Grid (read-only) -->
+  <div class="lane-grid" id="lane-grid">
+    <div class="lane-tile" data-lane="1"><span class="lane-num">1</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-1"></span></div>
+    <div class="lane-tile" data-lane="2"><span class="lane-num">2</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-2"></span></div>
+    <div class="lane-tile" data-lane="3"><span class="lane-num">3</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-3"></span></div>
+    <div class="lane-tile" data-lane="4"><span class="lane-num">4</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-4"></span></div>
+    <div class="lane-tile" data-lane="5"><span class="lane-num">5</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-5"></span></div>
+    <div class="lane-tile" data-lane="6"><span class="lane-num">6</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-6"></span></div>
+  </div>
+
+  <script>
+    /* ================================================================
+       SwimTimer Live View — read-only spectator display.
+       Listens to the same WebSocket broadcasts as the dashboard/remote
+       and never sends an action. Server hydrates with full_state on connect.
+       ================================================================ */
+
+    let ws = null;
+    let raceState = 'idle';
+    let clockRAF = null;
+    let reconnectDelay = 1000;
+    const MAX_RECONNECT = 10000;
+
+    // ── WebSocket ───────────────────────────────────
+    function connectWS() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+      ws.onopen = () => {
+        reconnectDelay = 1000;
+        document.getElementById('ws-dot').classList.add('connected');
+        document.getElementById('ws-status-text').textContent = 'Connected';
+      };
+
+      ws.onclose = () => {
+        document.getElementById('ws-dot').classList.remove('connected');
+        document.getElementById('ws-status-text').textContent = 'Reconnecting...';
+        setTimeout(connectWS, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT);
+      };
+
+      ws.onerror = () => { ws.close(); };
+
+      ws.onmessage = (evt) => {
+        try { handleMessage(JSON.parse(evt.data)); }
+        catch (e) { /* ignore parse errors */ }
+      };
+    }
+
+    // ── Message Handling (listen only) ──────────────
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'race_state':
+          raceState = msg.state;
+          updateStateBadge();
+          if (raceState === 'idle' || raceState === 'ready') resetLanes();
+          if (raceState === 'running') {
+            startClock(msg.elapsed || 0);
+          } else {
+            stopClock();
+            if (msg.elapsed != null) updateTimerDisplay(msg.elapsed);
+          }
+          break;
+
+        case 'lane_time':
+          updateLaneTime(msg.lane, msg.time, msg.is_finish);
+          break;
+
+        case 'full_state':
+          raceState = msg.state || 'idle';
+          updateStateBadge();
+          resetLanes();
+          if (msg.lane_times) {
+            for (const [lane, times] of Object.entries(msg.lane_times)) {
+              if (times.length > 0) {
+                const lastTime = times[times.length - 1];
+                const finished = msg.lane_finished ? msg.lane_finished[lane] : false;
+                updateLaneTime(parseInt(lane), lastTime, finished);
+              }
+            }
+          }
+          if (raceState === 'running') {
+            startClock(msg.elapsed || 0);
+          } else if (msg.elapsed != null) {
+            updateTimerDisplay(msg.elapsed);
+          }
+          break;
+
+        default:
+          break;
+      }
+    }
+
+    // ── UI Updates ──────────────────────────────────
+    function updateStateBadge() {
+      const badge = document.getElementById('state-badge');
+      badge.textContent = raceState.toUpperCase();
+      badge.className = 'state-badge ' + raceState;
+
+      // Whole-screen background cue: black at rest, green ready, yellow running.
+      document.body.classList.remove(
+        'race-bg-idle', 'race-bg-ready', 'race-bg-running', 'race-bg-completed');
+      document.body.classList.add('race-bg-' + raceState);
+    }
+
+    function updateTimerDisplay(seconds) {
+      const el = document.getElementById('master-timer');
+      el.textContent = formatTime(seconds);
+      el.classList.toggle('running', raceState === 'running');
+    }
+
+    function updateLaneTime(lane, time, isFinish) {
+      const el = document.getElementById(`lane-time-${lane}`);
+      if (!el) return;
+      el.textContent = formatTime(time);
+      if (isFinish) {
+        const tile = el.closest('.lane-tile');
+        if (tile) tile.classList.add('finished');
+      }
+    }
+
+    function resetLanes() {
+      for (let i = 1; i <= 6; i++) {
+        const t = document.getElementById('lane-time-' + i);
+        if (t) t.textContent = '';
+        const tile = document.querySelector(`.lane-tile[data-lane="${i}"]`);
+        if (tile) tile.classList.remove('finished');
+      }
+    }
+
+    // ── Clock ───────────────────────────────────────
+    let clockStartLocal = null;
+    let clockBaseElapsed = 0;
+
+    function startClock(baseElapsed) {
+      stopClock();
+      clockBaseElapsed = baseElapsed || 0;
+      clockStartLocal = performance.now();
+      tickClock();
+    }
+
+    function tickClock() {
+      const elapsed = clockBaseElapsed + (performance.now() - clockStartLocal) / 1000;
+      updateTimerDisplay(elapsed);
+      clockRAF = requestAnimationFrame(tickClock);
+    }
+
+    function stopClock() {
+      if (clockRAF) { cancelAnimationFrame(clockRAF); clockRAF = null; }
+    }
+
+    // ── Time Formatting ─────────────────────────────
+    function formatTime(sec) {
+      if (sec == null || sec < 0) return '00:00.00';
+      const mins = Math.floor(sec / 60);
+      const secs = sec - mins * 60;
+      const whole = Math.floor(secs);
+      const hundredths = Math.floor((secs - whole) * 100);
+      return `${String(mins).padStart(2, '0')}:${String(whole).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+    }
+
+    // ── Init ────────────────────────────────────────
+    updateStateBadge();
+    connectWS();
+  </script>
+</body>
+</html>
