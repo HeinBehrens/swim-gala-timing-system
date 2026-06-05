@@ -26,7 +26,7 @@
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Esp32Gateway, PressEvent, DEFAULT_PORT, DEFAULT_TCP_HOST, DEFAULT_TCP_PORT } from "./esp32.js";
@@ -243,16 +243,64 @@ function configMessage(): Record<string, unknown> {
   };
 }
 
+// ── Roster / events (from roster.csv + events.csv, e.g. `npm run import`) ─────
+// Feeds swimmer names into the LIVE dashboard. Reloaded on event/heat change so
+// a mid-meet re-import shows up without a server restart.
+const ROSTER_PATH = process.env.ROSTER || join(BASE_DIR, "roster.csv");
+const EVENTS_PATH = process.env.EVENTS || join(BASE_DIR, "events.csv");
+interface RosterSwimmer { name: string; age: number | null; sex: string; club: string }
+let roster = new Map<string, RosterSwimmer>();         // key: `${event}-${heat}-${lane}`
+let eventNames = new Map<number, string>();            // event number -> display name
+
+function parseCsvRows(text: string): Record<string, string>[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length === 0) return [];
+  const header = lines[0]!.split(",").map((h) => h.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const cells = line.split(",");
+    const o: Record<string, string> = {};
+    header.forEach((h, i) => (o[h] = (cells[i] ?? "").trim()));
+    return o;
+  });
+}
+function reloadRoster(): void {
+  const r = new Map<string, RosterSwimmer>();
+  if (existsSync(ROSTER_PATH)) {
+    for (const row of parseCsvRows(readFileSync(ROSTER_PATH, "utf8"))) {
+      const event = Number(row.event), heat = Number(row.heat), lane = Number(row.lane);
+      if (!event || !heat || !lane) continue;
+      r.set(`${event}-${heat}-${lane}`, {
+        name: row.name || "", age: row.age ? Number(row.age) : null,
+        sex: (row.sex || "").toUpperCase(), club: row.club || "",
+      });
+    }
+  }
+  const e = new Map<number, string>();
+  if (existsSync(EVENTS_PATH)) {
+    for (const row of parseCsvRows(readFileSync(EVENTS_PATH, "utf8"))) {
+      const event = Number(row.event);
+      if (event && row.name) e.set(event, row.name);
+    }
+  }
+  roster = r; eventNames = e;
+}
+reloadRoster(); // initial load at startup
+
 function fullState(): Record<string, unknown> {
-  const lanes: Record<number, { time: number | null; finished: boolean; battery: number | null }> = {};
+  const lanes: Record<number, { time: number | null; finished: boolean; battery: number | null; name: string; club: string }> = {};
   for (let i = 1; i <= NUM_LANES; i++) {
-    lanes[i] = { time: race.laneResult(i), finished: race.laneFinished[i]!, battery: race.battery[i] ?? null };
+    const sw = roster.get(`${race.eventNum}-${race.heatNum}-${i}`);
+    lanes[i] = {
+      time: race.laneResult(i), finished: race.laneFinished[i]!, battery: race.battery[i] ?? null,
+      name: sw?.name ?? "", club: sw?.club ?? "",
+    };
   }
   const cfg = configMessage();
   delete (cfg as any).type;
   return {
     type: "full_state",
     event: race.eventNum, heat: race.heatNum,
+    event_name: eventNames.get(race.eventNum) ?? "",
     state: race.state,
     start_time: race.startWall, elapsed: race.elapsedSeconds(),
     lanes, ble: bleConnected, ha: haConnected,
@@ -554,13 +602,21 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
     case "set_event_heat":
       race.eventNum = num(msg.event ?? msg.event_num, race.eventNum);
       race.heatNum = num(msg.heat ?? msg.heat_num, race.heatNum);
+      reloadRoster();
       broadcast(fullState());
+      break;
+
+    case "reload_roster":
+      reloadRoster();
+      broadcast(fullState());
+      toast("Roster reloaded", "success");
       break;
 
     case "prepare":
     case "prepare_race":
+      reloadRoster();
       race.prepare(num(msg.event ?? msg.event_num, race.eventNum), num(msg.heat ?? msg.heat_num, race.heatNum));
-      broadcastRaceState();
+      broadcast(fullState());
       break;
 
     case "start":

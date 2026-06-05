@@ -1158,3 +1158,33 @@ body::after {
   color: #fcd34d;
   border-color: rgba(245, 158, 11, 0.5);
 }
+
+/* ── Swimmer names (live roster, from roster.csv / Lenex import) ───────────── */
+.lane-swimmer {
+  margin: 2px 0 6px;
+  min-height: 1.1em;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lane-swimmer .swimmer-name {
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: #e5e7eb;
+  letter-spacing: 0.01em;
+}
+.lane-swimmer .swimmer-club {
+  font-size: 0.78rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+.lane-swimmer.empty { opacity: 0; }
+
+.event-name-display {
+  flex-basis: 100%;
+  margin-top: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #93c5fd;
+  letter-spacing: 0.01em;
+}

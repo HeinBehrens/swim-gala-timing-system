@@ -432,16 +432,18 @@ class SwimTimerApp {
     // Set event/heat
     if (data.event != null) this.els.eventInput.value = data.event;
     if (data.heat != null) this.els.heatInput.value = data.heat;
+    this.setEventName(data.event_name || '');
 
     // Set race state
     if (data.state) {
       this.setRaceState(data.state, data.start_time, data.elapsed);
     }
 
-    // Set lane times
+    // Set lane times + swimmer names
     if (data.lanes) {
       for (const [lane, info] of Object.entries(data.lanes)) {
         const laneNum = parseInt(lane, 10);
+        this.setLaneSwimmer(laneNum, info.name || '', info.club || '');
         if (info.time != null) {
           this.laneTimes[laneNum] = info.time;
           this.laneFinished[laneNum] = !!info.finished;
@@ -681,6 +683,45 @@ class SwimTimerApp {
       this.laneTimes[lane] = time;
       this.updateLaneCard(lane, time, false);
     }
+  }
+
+  // Show the swimmer's name (and club) on a lane card. The element is created on
+  // demand so we don't have to hand-edit all six lane cards in the HTML.
+  setLaneSwimmer(lane, name, club) {
+    const card = this.getLaneCard(lane);
+    if (!card) return;
+    let el = card.querySelector('.lane-swimmer');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'lane-swimmer';
+      const header = card.querySelector('.lane-header');
+      if (header) header.insertAdjacentElement('afterend', el);
+      else card.insertBefore(el, card.firstChild);
+    }
+    if (name) {
+      el.innerHTML = `<span class="swimmer-name"></span><span class="swimmer-club"></span>`;
+      el.querySelector('.swimmer-name').textContent = name;
+      el.querySelector('.swimmer-club').textContent = club || '';
+      el.classList.remove('empty');
+    } else {
+      el.textContent = '';
+      el.classList.add('empty');
+    }
+  }
+
+  // Show the event name (from events.csv) in the event/heat bar.
+  setEventName(name) {
+    let el = document.getElementById('event-name-display');
+    if (!el) {
+      const bar = document.querySelector('.event-heat-bar');
+      if (!bar) return;
+      el = document.createElement('div');
+      el.id = 'event-name-display';
+      el.className = 'event-name-display';
+      bar.appendChild(el);
+    }
+    el.textContent = name || '';
+    el.style.display = name ? '' : 'none';
   }
 
   updateLaneCard(lane, time, isFinish) {
