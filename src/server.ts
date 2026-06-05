@@ -30,6 +30,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Esp32Gateway, PressEvent, DEFAULT_PORT, DEFAULT_TCP_HOST, DEFAULT_TCP_PORT } from "./esp32.js";
+import { importLenexBuffer } from "./import.js";
 import { saveRace, listResults, LaneRow } from "./db.js";
 import { writeSite } from "./site.js";
 
@@ -719,6 +720,21 @@ function main(): void {
   app.get("/api/results", (_req, res) => {
     try { res.json({ results: listResults(200) }); }
     catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  // Upload a Lenex meet file (.lef/.lxf) from the dashboard's Settings → writes
+  // roster.csv/events.csv, reloads the live roster, and pushes names to all clients.
+  app.post("/api/import", express.raw({ type: "*/*", limit: "25mb" }), (req, res) => {
+    try {
+      const { rosterCsv, eventsCsv, summary } = importLenexBuffer(req.body as Buffer);
+      writeFileSync(EVENTS_PATH, eventsCsv);
+      writeFileSync(ROSTER_PATH, rosterCsv);
+      reloadRoster();
+      broadcast(fullState());
+      toast(`Imported ${summary.entries} swimmers across ${summary.eventCount} events`, "success");
+      res.json({ ok: true, summary });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: (e as Error).message });
+    }
   });
   app.use("/exports", express.static(EXPORTS_DIR));
   app.get("/results", (_req, res) => res.sendFile(join(PUBLIC_DIR, "results.html")));

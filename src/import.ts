@@ -25,6 +25,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { basename } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ── Tiny XML parser (dependency-free) ────────────────────────────────────────
 // Lenex is well-formed XML that is almost entirely attributes on nested
@@ -209,7 +210,34 @@ function toCsv(header: string[], rows: Record<string, string | number>[]): strin
   return lines.join("\n") + "\n";
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Reusable API (used by the CLI below and by the server's admin upload) ─────
+export interface ImportResult {
+  rosterCsv: string;
+  eventsCsv: string;
+  summary: { events: number; entries: number; eventCount: number; heatCount: number };
+}
+
+/** Parse a Lenex buffer (.lef XML or .lxf zip) into roster + events CSV text. */
+export function importLenexBuffer(buf: Buffer): ImportResult {
+  const xml = buf[0] === 0x50 /* 'P' → zip */ ? unzipSingle(buf) : buf.toString("utf8");
+  const root = parseXml(xml);
+  if (findAll(root, "MEET").length === 0) {
+    throw new Error("Not a Lenex file (no <MEET> element).");
+  }
+  const { roster, events } = lenexToRows(root);
+  return {
+    eventsCsv: toCsv(["event", "name", "stroke", "distance", "sex", "agegroup"], events as unknown as Record<string, string | number>[]),
+    rosterCsv: toCsv(["event", "heat", "lane", "name", "age", "sex", "club"], roster as unknown as Record<string, string | number>[]),
+    summary: {
+      events: events.length,
+      entries: roster.length,
+      eventCount: new Set(roster.map((r) => r.event)).size,
+      heatCount: new Set(roster.map((r) => `${r.event}-${r.heat}`)).size,
+    },
+  };
+}
+
+// ── CLI ──────────────────────────────────────────────────────────────────────
 function main(): void {
   const input = process.argv[2];
   if (!input) {
@@ -219,32 +247,28 @@ function main(): void {
   const rosterOut = process.env.ROSTER || "roster.csv";
   const eventsOut = process.env.EVENTS || "events.csv";
 
-  const buf = readFileSync(input);
-  const xml = input.toLowerCase().endsWith(".lxf") || buf[0] === 0x50 /* 'P' (zip) */
-    ? unzipSingle(buf)
-    : buf.toString("utf8");
-
-  const root = parseXml(xml);
-  if (findAll(root, "MEET").length === 0) {
-    console.error(`✗ ${basename(input)} doesn't look like Lenex (no <MEET>). Is it a different format?`);
+  let result: ImportResult;
+  try {
+    result = importLenexBuffer(readFileSync(input));
+  } catch (e) {
+    console.error(`✗ ${basename(input)}: ${(e as Error).message}`);
     process.exit(2);
   }
-
-  const { roster, events } = lenexToRows(root);
-  writeFileSync(eventsOut, toCsv(["event", "name", "stroke", "distance", "sex", "agegroup"], events as unknown as Record<string, string | number>[]));
-  writeFileSync(rosterOut, toCsv(["event", "heat", "lane", "name", "age", "sex", "club"], roster as unknown as Record<string, string | number>[]));
+  writeFileSync(eventsOut, result.eventsCsv);
+  writeFileSync(rosterOut, result.rosterCsv);
 
   console.log(`✓ Imported ${basename(input)}`);
-  console.log(`  ${events.length} events  → ${eventsOut}`);
-  console.log(`  ${roster.length} swimmer-lane entries → ${rosterOut}`);
-  if (roster.length === 0) {
+  console.log(`  ${result.summary.events} events  → ${eventsOut}`);
+  console.log(`  ${result.summary.entries} swimmer-lane entries → ${rosterOut}`);
+  if (result.summary.entries === 0) {
     console.warn("  ⚠ No lane entries found. The export may not have lane/heat assignments yet,");
     console.warn("    or it uses different attribute names — check src/import.ts lenexToRows().");
   } else {
-    const evs = new Set(roster.map((r) => r.event)).size;
-    const heats = new Set(roster.map((r) => `${r.event}-${r.heat}`)).size;
-    console.log(`  across ${evs} events / ${heats} heats`);
+    console.log(`  across ${result.summary.eventCount} events / ${result.summary.heatCount} heats`);
   }
 }
 
-main();
+// Only run the CLI when invoked directly (not when imported by the server).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

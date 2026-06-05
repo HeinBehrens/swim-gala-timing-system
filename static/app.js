@@ -92,6 +92,9 @@ class SwimTimerApp {
       });
     });
 
+    // Meet import (Lenex) — friendly drag-drop + browse picker
+    this.setupMeetImport();
+
     // Export buttons
     this.els.btnExportDo3.addEventListener('click', () => this.sendAction('export_do3', {}));
     this.els.btnExportLif.addEventListener('click', () => this.sendAction('export_lif', {}));
@@ -722,6 +725,53 @@ class SwimTimerApp {
     }
     el.textContent = name || '';
     el.style.display = name ? '' : 'none';
+  }
+
+  // Meet import: drag-drop / browse a Lenex file, upload it, show the result.
+  setupMeetImport() {
+    const drop = document.getElementById('import-drop');
+    const input = document.getElementById('import-file');
+    const nameEl = document.getElementById('import-file-name');
+    const importBtn = document.getElementById('btn-import-meet');
+    const reloadBtn = document.getElementById('btn-reload-roster');
+    const statusEl = document.getElementById('import-status');
+    if (!drop || !input || !importBtn) return;
+    let chosen = null;
+
+    const setFile = (file) => {
+      chosen = file || null;
+      nameEl.textContent = chosen ? chosen.name : 'Drop a .lef / .lxf file here';
+      drop.classList.toggle('has-file', !!chosen);
+      importBtn.disabled = !chosen;
+      if (statusEl) statusEl.textContent = '';
+    };
+
+    drop.addEventListener('click', () => input.click());
+    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    input.addEventListener('change', () => setFile(input.files[0]));
+    ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('dragover'); }));
+    drop.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]); });
+
+    importBtn.addEventListener('click', async () => {
+      if (!chosen) return;
+      importBtn.disabled = true;
+      if (statusEl) { statusEl.className = 'import-status'; statusEl.textContent = 'Importing…'; }
+      try {
+        const buf = await chosen.arrayBuffer();
+        const res = await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
+        const s = data.summary;
+        if (statusEl) { statusEl.className = 'import-status ok'; statusEl.textContent = `✓ ${s.entries} swimmers · ${s.eventCount} events · ${s.heatCount} heats`; }
+      } catch (err) {
+        if (statusEl) { statusEl.className = 'import-status err'; statusEl.textContent = '✗ ' + err.message; }
+      } finally {
+        importBtn.disabled = !chosen;
+      }
+    });
+
+    if (reloadBtn) reloadBtn.addEventListener('click', () => this.sendAction('reload_roster', {}));
   }
 
   updateLaneCard(lane, time, isFinish) {

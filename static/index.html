@@ -300,6 +300,29 @@
       </div>
 
       <div class="settings-section">
+        <h3 class="settings-section-title">Meet / Roster</h3>
+        <p class="settings-hint">Import a Lenex meet file (.lef / .lxf) from your meet
+          software to load events, heats, lanes and swimmer names.</p>
+        <div class="file-drop" id="import-drop" tabindex="0" role="button"
+             aria-label="Choose or drop a Lenex file">
+          <input type="file" id="import-file" accept=".lef,.lxf,.xml" hidden>
+          <svg class="file-drop-icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="file-drop-text">
+            <span class="file-drop-name" id="import-file-name">Drop a .lef / .lxf file here</span>
+            <span class="file-drop-hint">or click to browse</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <button class="btn btn-secondary" id="btn-import-meet" disabled>Import meet</button>
+          <button class="btn btn-secondary" id="btn-reload-roster">Reload roster</button>
+        </div>
+        <div class="import-status" id="import-status"></div>
+      </div>
+
+      <div class="settings-section">
         <h3 class="settings-section-title">Simulation Controls</h3>
         <div class="sim-controls">
           <button class="btn btn-sim btn-sim-start" id="btn-sim-start">Simulate Start</button>
