@@ -14,6 +14,9 @@
   <!-- Top Navigation Bar -->
   <header class="top-nav">
     <div class="nav-left">
+      <a class="club-logo" href="https://www.ashfordtownsc.co.uk/" target="_blank" rel="noopener" title="Ashford Town Swimming Club">
+        <img src="ats-logo.svg" alt="Ashford Town Swimming Club" />
+      </a>
       <div class="logo">
         <svg class="logo-icon" viewBox="0 0 32 32" width="32" height="32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -52,6 +55,13 @@
   <main class="dashboard">
     <section id="race-controls" class="race-controls">
       <div class="event-heat-bar glass-card">
+        <div class="input-group schedule-group">
+          <label for="schedule-select">Schedule</label>
+          <select id="schedule-select" class="schedule-select" title="Pick the event / heat (✓ = completed)">
+            <option value="">— import a meet file —</option>
+          </select>
+        </div>
+        <div class="input-divider"></div>
         <div class="input-group">
           <label for="event-number">Event</label>
           <input type="number" id="event-number" min="1" max="999" value="1" class="num-input">
@@ -257,6 +267,12 @@
         <h3 class="settings-section-title">Button Registration</h3>
         <p class="enroll-status" id="enroll-status">Re-assign lanes by the order you press the buttons: Lane 1 → … → Lane 6 → Starter.</p>
         <button class="btn btn-danger" id="btn-reenroll">Re-enroll Buttons</button>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Gateway (ESP32)</h3>
+        <p class="enroll-status">Reboot the ESP32 gateway over its USB serial link (firmware reloads; no data is lost).</p>
+        <button class="btn btn-danger" id="btn-restart-esp">Restart ESP32</button>
       </div>
 
       <div class="settings-section">
