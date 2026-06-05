@@ -85,6 +85,7 @@
 #define PROV_SVC_UUID    "a1b2c3d4-0001-4a5b-8c6d-1234567890ab"
 #define PROV_CREDS_UUID  "a1b2c3d4-0002-4a5b-8c6d-1234567890ab" // write "ssid\tpassword"
 #define PROV_STATUS_UUID "a1b2c3d4-0003-4a5b-8c6d-1234567890ab" // read/notify status
+#define PROV_SCAN_UUID   "a1b2c3d4-0004-4a5b-8c6d-1234567890ab" // write=trigger, read/notify="ssid\trssi\n…"
 
 // ── Registered-button allowlist ──────────────────────────────────────────────
 // REGISTERED_ONLY=0 emits every Shelly BLU button press (lane mapping is done
@@ -133,6 +134,8 @@ static bool wifiEnabled = false;
 static Preferences prefs;
 static String wifiSsid, wifiPass;
 static BLECharacteristic *statusChar = nullptr;
+static BLECharacteristic *scanChar = nullptr;
+static volatile bool scanRequested = false;   // set by BLE write, serviced in loop()
 
 // Parse a BTHome v2 payload. Mirrors parseBtHome() in the TypeScript code.
 static bool parseBtHome(const uint8_t *p, size_t len, uint8_t &button, int16_t &packetId) {
@@ -281,6 +284,37 @@ class CredsCallback : public BLECharacteristicCallbacks {
   }
 };
 
+// BLE write to the scan characteristic = "please scan for Wi-Fi networks". The
+// actual scan blocks ~2 s, so we just flag it here and run it from loop().
+class ScanTriggerCallback : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *) override { scanRequested = true; }
+};
+
+// Scan for 2.4 GHz networks (the band this system uses) and publish a deduped,
+// strongest-first "ssid\trssi\n…" list on the scan characteristic (read + notify).
+// Called from loop() so the blocking scan never stalls press handling (ioTask).
+static void doWifiScan() {
+  setStatus("scanning for Wi-Fi networks…");
+  int n = WiFi.scanNetworks();              // blocking; results sorted by RSSI desc
+  String out, seen = "\n";
+  int added = 0;
+  for (int i = 0; i < n && added < 15 && out.length() < 440; i++) {
+    if (WiFi.channel(i) > 14) continue;     // skip 5 GHz — the gateway joins 2.4 GHz
+    String s = WiFi.SSID(i);
+    if (s.length() == 0) continue;          // hidden network
+    if (seen.indexOf("\n" + s + "\n") >= 0) continue; // dedup (keep strongest)
+    seen += s + "\n";
+    out += s + "\t" + String(WiFi.RSSI(i)) + "\n";
+    added++;
+  }
+  WiFi.scanDelete();
+  if (scanChar) {
+    scanChar->setValue((uint8_t *)out.c_str(), out.length());
+    scanChar->notify();
+  }
+  setStatus(String("scan complete: ") + added + " network(s)");
+}
+
 // Load saved credentials and stand up the BLE provisioning GATT service.
 static void setupProvisioning() {
   prefs.begin("wifi", true);
@@ -296,6 +330,10 @@ static void setupProvisioning() {
       BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   statusChar->addDescriptor(new BLE2902());
   statusChar->setValue((uint8_t *)"idle", 4);
+  scanChar = svc->createCharacteristic(PROV_SCAN_UUID,
+      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  scanChar->addDescriptor(new BLE2902());
+  scanChar->setCallbacks(new ScanTriggerCallback());
   svc->start();
 
   // Advertise the NAME in the main packet (so it's identifiable in the browser's
@@ -354,7 +392,7 @@ void setup() {
   // so a press is sent within ms, not held until the 1 s scan window ends.
   xTaskCreate(ioTask, "io", 4096, nullptr, 2, nullptr);
 
-  Serial.println("READY\tesp32-shelly-scanner\tv12");
+  Serial.println("READY\tesp32-shelly-scanner\tv13");
   // Finite-window scan loop runs in loop(); start(0) (continuous) leaks RAM in
   // this BLE library (no public setMaxResults) -> bad_alloc abort.
 }
@@ -492,6 +530,7 @@ static void ioTask(void *) {
 }
 
 void loop() {
+  if (scanRequested) { scanRequested = false; doWifiScan(); }  // Wi-Fi scan for provisioning
   BLEScan *scan = BLEDevice::getScan();
   scan->start(SCAN_SECONDS, false); // blocks ~1s; clears stored results first
   scan->clearResults();

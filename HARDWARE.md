@@ -1,6 +1,6 @@
 # Swim Gala Timing System — Hardware (start signal kit)
 
-Companion hardware for the ESP32-C5 gateway (`firmware/esp32_shelly_scanner`, **v12**).
+Companion hardware for the ESP32-C5 gateway (`firmware/esp32_shelly_scanner`, **v13**).
 Adds a **5 V USB strobe light** and a **start beep** played through a **MAX98357 I2S
 amp + speaker** — both USB-powered, in a waterproof box. No 12 V, no power bank, no
 megaphone needed for the start signal.
@@ -204,7 +204,7 @@ void resetHeat() { for (auto &t : touchMs) t = 0; }  // call on new start
 so you can validate a real pad in water before committing to a full set.
 
 ## Firmware
-v12, flash with `arduino-cli ... --fqbn esp32:esp32:esp32c5:PartitionScheme=huge_app`.
+v13, flash with `arduino-cli ... --fqbn esp32:esp32:esp32c5:PartitionScheme=huge_app`.
 Requires arduino-esp32 core 3.x (uses `ESP_I2S.h`). Designate a starter button in the
 dashboard, then test: pressing it should fire the light (GPIO5) + a 2 kHz beep over the
 MAX98357 for 1.5 s. You can verify the beep with just the amp + speaker wired, before the

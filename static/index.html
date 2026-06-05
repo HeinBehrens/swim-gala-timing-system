@@ -278,13 +278,18 @@
         <p class="enroll-status" id="wifi-prov-status">Send the gateway's Wi-Fi credentials to the ESP32 over Bluetooth. It saves them to flash and joins the network — no cable needed.</p>
         <div class="settings-field">
           <label for="wifi-ssid">Network name (SSID)</label>
-          <input type="text" id="wifi-ssid" class="text-input" placeholder="MyNetwork">
+          <input type="text" id="wifi-ssid" class="text-input" list="wifi-ssid-options"
+                 placeholder="Scan, or type the network name" autocomplete="off">
+          <datalist id="wifi-ssid-options"></datalist>
         </div>
         <div class="settings-field">
           <label for="wifi-pass">Password</label>
           <input type="password" id="wifi-pass" class="text-input" placeholder="Wi-Fi password">
         </div>
-        <button class="btn btn-sim" id="btn-wifi-prov">Configure Wi-Fi over Bluetooth</button>
+        <div class="settings-row">
+          <button class="btn btn-secondary" id="btn-wifi-scan">Scan networks</button>
+          <button class="btn btn-sim" id="btn-wifi-prov">Configure Wi-Fi over Bluetooth</button>
+        </div>
       </div>
 
 

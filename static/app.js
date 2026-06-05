@@ -103,6 +103,10 @@ class SwimTimerApp {
     if (this.els.btnWifiProv) {
       this.els.btnWifiProv.addEventListener('click', () => this.configureWifiOverBluetooth());
     }
+    const btnWifiScan = document.getElementById('btn-wifi-scan');
+    if (btnWifiScan) {
+      btnWifiScan.addEventListener('click', () => this.scanWifiNetworks());
+    }
 
     // Re-enroll buttons (admin) — confirm to avoid an accidental wipe of the lane map
     if (this.els.btnReenroll) {
@@ -368,8 +372,93 @@ class SwimTimerApp {
     if (this.els.wifiProvStatus) this.els.wifiProvStatus.textContent = text;
   }
 
+  // Firmware provisioning GATT UUIDs (must match esp32_shelly_scanner.ino).
+  static get WIFI_GATT() {
+    return {
+      SVC: 'a1b2c3d4-0001-4a5b-8c6d-1234567890ab',
+      CREDS: 'a1b2c3d4-0002-4a5b-8c6d-1234567890ab',
+      STATUS: 'a1b2c3d4-0003-4a5b-8c6d-1234567890ab',
+      SCAN: 'a1b2c3d4-0004-4a5b-8c6d-1234567890ab',
+    };
+  }
+
+  // Connect to the gateway's provisioning service, reusing an open connection so
+  // Scan + Configure don't each trigger a separate Bluetooth chooser prompt.
+  async connectWifiGatt() {
+    const G = SwimTimerApp.WIFI_GATT;
+    if (this._wifiGatt && this._wifiGatt.device.gatt.connected) return this._wifiGatt;
+    this.setWifiProvStatus('Select “SwimTimer-Gateway” in the Bluetooth prompt…');
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'SwimTimer' }, { services: [G.SVC] }],
+      optionalServices: [G.SVC],
+    });
+    this.setWifiProvStatus('Connecting to ' + (device.name || 'gateway') + '…');
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(G.SVC);
+    // Surface ESP status (connecting / connected / failed) once per connection.
+    try {
+      const statusCh = await svc.getCharacteristic(G.STATUS);
+      await statusCh.startNotifications();
+      statusCh.addEventListener('characteristicvaluechanged', (e) => {
+        const v = new TextDecoder().decode(e.target.value);
+        this.setWifiProvStatus('ESP32: ' + v);
+        if (/connected\s+\d/i.test(v)) this.showToast('ESP32 joined Wi-Fi: ' + v, 'success');
+        else if (/failed/i.test(v)) this.showToast('ESP32 could not join: ' + v, 'error');
+      });
+    } catch (e) { /* status characteristic optional */ }
+    this._wifiGatt = { device, server, svc };
+    return this._wifiGatt;
+  }
+
+  // Ask the gateway to scan for nearby 2.4 GHz networks and fill the SSID dropdown.
+  async scanWifiNetworks() {
+    if (!navigator.bluetooth) {
+      this.showToast('Web Bluetooth not available — open the dashboard in Chrome or Edge', 'error');
+      return;
+    }
+    try {
+      const { svc } = await this.connectWifiGatt();
+      const scanCh = await svc.getCharacteristic(SwimTimerApp.WIFI_GATT.SCAN);
+      await scanCh.startNotifications();
+      scanCh.addEventListener('characteristicvaluechanged', async (e) => {
+        // Read the full value (long read) in case the notify was MTU-truncated.
+        let buf = e.target.value;
+        try { buf = await scanCh.readValue(); } catch (_) { /* use notify payload */ }
+        this.populateSsidList(new TextDecoder().decode(buf));
+      });
+      await scanCh.writeValue(new Uint8Array([1])); // trigger the scan
+      this.setWifiProvStatus('Scanning for Wi-Fi networks…');
+    } catch (e) {
+      this.setWifiProvStatus('Scan failed: ' + e.message);
+      this.showToast('Wi-Fi scan failed: ' + e.message, 'error');
+    }
+  }
+
+  // Parse "ssid\trssi\n…" into the <datalist> so the SSID box autocompletes.
+  populateSsidList(text) {
+    const dl = document.getElementById('wifi-ssid-options');
+    if (!dl) return;
+    const nets = text.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const [ssid, rssi] = l.split('\t');
+      return { ssid, rssi: parseInt(rssi || '0', 10) };
+    }).filter((n) => n.ssid);
+    dl.innerHTML = '';
+    for (const n of nets) {
+      const o = document.createElement('option');
+      o.value = n.ssid;
+      o.label = `${n.rssi} dBm`;
+      dl.appendChild(o);
+    }
+    if (nets.length) {
+      this.setWifiProvStatus(`Found ${nets.length} network(s) — pick one from the SSID box.`);
+      if (!this.els.wifiSsid.value) this.els.wifiSsid.value = nets[0].ssid;
+    } else {
+      this.setWifiProvStatus('No 2.4 GHz networks found — type the SSID manually.');
+    }
+  }
+
   // Send Wi-Fi credentials to the ESP32 gateway over Web Bluetooth. The ESP saves
-  // them to flash and joins the network — must match the firmware's GATT UUIDs.
+  // them to flash and joins the network.
   async configureWifiOverBluetooth() {
     if (!navigator.bluetooth) {
       this.showToast('Web Bluetooth not available — open the dashboard in Chrome or Edge at http://localhost:8000', 'error');
@@ -377,37 +466,10 @@ class SwimTimerApp {
     }
     const ssid = (this.els.wifiSsid.value || '').trim();
     const pass = this.els.wifiPass.value || '';
-    if (!ssid) { this.showToast('Enter the Wi-Fi network name (SSID)', 'error'); return; }
-
-    const SVC = 'a1b2c3d4-0001-4a5b-8c6d-1234567890ab';
-    const CREDS = 'a1b2c3d4-0002-4a5b-8c6d-1234567890ab';
-    const STATUS = 'a1b2c3d4-0003-4a5b-8c6d-1234567890ab';
-
+    if (!ssid) { this.showToast('Enter or scan the Wi-Fi network name (SSID)', 'error'); return; }
     try {
-      this.setWifiProvStatus('Select “SwimTimer-Gateway” in the Bluetooth prompt…');
-      // Match by name (advertised in the main packet) OR the service UUID
-      // (advertised in the scan response) — robust either way.
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: 'SwimTimer' }, { services: [SVC] }],
-        optionalServices: [SVC],
-      });
-      this.setWifiProvStatus('Connecting to ' + (device.name || 'gateway') + '…');
-      const server = await device.gatt.connect();
-      const svc = await server.getPrimaryService(SVC);
-
-      // Listen for status notifications from the ESP (connecting / connected / failed).
-      try {
-        const statusCh = await svc.getCharacteristic(STATUS);
-        await statusCh.startNotifications();
-        statusCh.addEventListener('characteristicvaluechanged', (e) => {
-          const v = new TextDecoder().decode(e.target.value);
-          this.setWifiProvStatus('ESP32: ' + v);
-          if (/connected/i.test(v)) this.showToast('ESP32 joined Wi-Fi: ' + v, 'success');
-          else if (/failed/i.test(v)) this.showToast('ESP32 could not join: ' + v, 'error');
-        });
-      } catch (e) { /* status characteristic optional */ }
-
-      const credsCh = await svc.getCharacteristic(CREDS);
+      const { svc } = await this.connectWifiGatt();
+      const credsCh = await svc.getCharacteristic(SwimTimerApp.WIFI_GATT.CREDS);
       await credsCh.writeValue(new TextEncoder().encode(ssid + '\t' + pass));
       this.setWifiProvStatus('Credentials sent — ESP32 is connecting to “' + ssid + '”…');
       this.showToast('Wi-Fi sent to ESP32 over Bluetooth', 'success');

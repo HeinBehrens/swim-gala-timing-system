@@ -14,9 +14,9 @@ race event — it only does bookkeeping.
   (`esp_timer_get_time()`) inside the BLE receive callback, *before* any
   processing — see `firmware/esp32_shelly_scanner/esp32_shelly_scanner.ino`,
   `onResult()`.
-- The external **START** is captured in a **hardware ISR at the falling edge**
-  (`onStartIsr()`), so the start instant is precise to the edge, not to when
-  software got around to looking.
+- The **start** is a designated **Shelly BLU button** — its press is stamped with
+  the same on-chip µs clock in the BLE callback, and the host starts the clock
+  from that PRESS line (there is no wired start button as of v12).
 - Start and finish are read from the **same monotonic clock**, so a race time is
   simply `finish_µs − start_µs`. The ESP streams these stamps to the host as one
   identical line (`PRESS\t…\tmicrosSinceBoot`) over **both transports** — USB
@@ -46,7 +46,7 @@ not cancel and shows up as timing error.
 
 ## Components
 
-- **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v12). Captures BTHome
+- **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v13). Captures BTHome
   button broadcasts, on-chip µs timestamps, dedups the advert burst by
   `packet_id`, fires the start signal (5 V USB light + I2S beep via a MAX98357)
   off a designated Shelly starter button, and streams each line over **both USB
@@ -87,7 +87,9 @@ npm start          # serial → dashboard + /remote over WebSocket
 npm run publish    # build the public results page
 ```
 
-Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth). Sample data
+Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth): Settings →
+**Wi-Fi (Bluetooth setup)** → **Scan networks** lists nearby 2.4 GHz SSIDs (the
+gateway scans on request), then enter the password and **Configure**. Sample data
 lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 `roster.csv` / `events.csv` (the live files are git-ignored).
 
