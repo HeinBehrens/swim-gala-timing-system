@@ -48,6 +48,27 @@
       padding: 12px;
       padding-bottom: calc(12px + var(--safe-bottom));
       gap: 10px;
+      transition: background-color 250ms ease;
+    }
+
+    /* ── Race-phase background cue (mirrors dashboard) ──
+       BLACK at rest (idle/completed), GREEN when ready, YELLOW while running. */
+    body.race-bg-idle,
+    body.race-bg-completed {
+      background: #000000;
+      background-image: none;
+    }
+    body.race-bg-ready {
+      background: #066b3a;
+      background-image:
+        radial-gradient(ellipse 90% 60% at 50% 20%, rgba(0, 230, 130, 0.45) 0%, transparent 65%),
+        linear-gradient(180deg, #043d24 0%, #066b3a 50%, #043d24 100%);
+    }
+    body.race-bg-running {
+      background: #a88a00;
+      background-image:
+        radial-gradient(ellipse 90% 60% at 50% 20%, rgba(255, 225, 60, 0.55) 0%, transparent 65%),
+        linear-gradient(180deg, #7a6500 0%, #a88a00 50%, #7a6500 100%);
     }
 
     /* ── Header ────────────────────────────────────── */
@@ -259,12 +280,6 @@
       border-color: rgba(0, 217, 126, 0.3);
       color: var(--green);
     }
-    .ctrl-btn.stop {
-      background: linear-gradient(135deg, rgba(255, 107, 107, 0.25), rgba(255, 107, 107, 0.1));
-      border-color: rgba(255, 107, 107, 0.3);
-      color: var(--red);
-    }
-
     /* ── Mode Selector ─────────────────────────────── */
     .mode-bar {
       display: flex;
@@ -450,7 +465,6 @@
   <!-- Bottom Controls -->
   <div class="bottom-controls">
     <button class="ctrl-btn start" id="btn-start" onclick="sendStart()">▶ Start</button>
-    <button class="ctrl-btn stop" id="btn-stop" onclick="sendStop()">■ Stop</button>
   </div>
 
   <!-- Lane Assignment Overlay -->
@@ -572,6 +586,12 @@
       const badge = document.getElementById('state-badge');
       badge.textContent = raceState.toUpperCase();
       badge.className = 'state-badge ' + raceState;
+
+      // Whole-screen background cue (mirrors the dashboard):
+      // black at rest, green when ready, yellow while running.
+      document.body.classList.remove(
+        'race-bg-idle', 'race-bg-ready', 'race-bg-running', 'race-bg-completed');
+      document.body.classList.add('race-bg-' + raceState);
     }
 
     function updateTimerDisplay(seconds) {
@@ -659,15 +679,6 @@
         send({ action: 'start_race' });
       } else if (raceState === 'completed' || raceState === 'idle') {
         send({ action: 'prepare_race', event_num: 1, heat_num: 1 });
-      }
-      hapticFeedback();
-    }
-
-    function sendStop() {
-      if (raceState === 'running') {
-        send({ action: 'stop_race' });
-      } else {
-        send({ action: 'reset_race' });
       }
       hapticFeedback();
     }
