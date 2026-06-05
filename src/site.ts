@@ -1,7 +1,7 @@
 /**
  * Public results site generator
  * =============================
- * Joins the recorded times (results.db) with an optional swimmer roster
+ * Joins the recorded times (results.json) with an optional swimmer roster
  * (roster.csv) and emits ONE self-contained static HTML file — inline CSS/JS,
  * data embedded as JSON, no external assets — so it can be hosted anywhere
  * (GitHub Pages, Netlify, S3, a club website, …).

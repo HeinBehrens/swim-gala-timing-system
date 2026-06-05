@@ -1,19 +1,23 @@
 /**
- * Results database (SQLite via better-sqlite3)
- * ============================================
- * Lightweight, file-based persistence — one local file, no server. Each completed
- * heat is written as a race row plus per-lane result rows. Queryable later for an
- * event history / results export.
+ * Results store (single JSON file)
+ * ================================
+ * Lightweight, file-based persistence — one local JSON file, no database, no
+ * native modules. Each completed heat is appended as a race record (with its
+ * per-lane results). The whole store is held in memory and written atomically on
+ * every save, so a fresh checkout just works (no schema, no build step).
  *
- * File: results.db at the project root (override with env RESULTS_DB).
+ * File: results.json at the project root (override with env RESULTS_JSON).
+ *
+ * Public API is unchanged from the old SQLite layer (saveRace / listResults /
+ * getResult), so callers (server.ts, site.ts) didn't have to change.
  */
 
-import Database from "better-sqlite3";
+import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.RESULTS_DB || join(SRC_DIR, "..", "results.db");
+const JSON_PATH = process.env.RESULTS_JSON || join(SRC_DIR, "..", "results.json");
 
 export interface LaneRow {
   lane: number;
@@ -36,74 +40,53 @@ export interface StoredRace extends RaceMeta {
   lanes: LaneRow[];
 }
 
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS races (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_num    INTEGER NOT NULL,
-    heat_num     INTEGER NOT NULL,
-    race_id      INTEGER,
-    dataset_num  INTEGER,
-    started_at   TEXT,
-    completed_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS lane_results (
-    race_db_id   INTEGER NOT NULL,
-    lane         INTEGER NOT NULL,
-    time_seconds REAL,
-    place        INTEGER,
-    finished     INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY (race_db_id) REFERENCES races(id) ON DELETE CASCADE
-  );
-  CREATE INDEX IF NOT EXISTS idx_lane_results_race ON lane_results(race_db_id);
-`);
+interface Store { nextId: number; races: StoredRace[] }
 
-const insertRace = db.prepare(`
-  INSERT INTO races (event_num, heat_num, race_id, dataset_num, started_at, completed_at)
-  VALUES (@eventNum, @heatNum, @raceId, @datasetNum, @startedAt, @completedAt)
-`);
-const insertLane = db.prepare(`
-  INSERT INTO lane_results (race_db_id, lane, time_seconds, place, finished)
-  VALUES (?, ?, ?, ?, ?)
-`);
-const selectRaces = db.prepare(`SELECT * FROM races ORDER BY id DESC LIMIT ?`);
-const selectLanes = db.prepare(
-  `SELECT lane, time_seconds AS time, place, finished FROM lane_results WHERE race_db_id = ? ORDER BY lane`
-);
-const selectRace = db.prepare(`SELECT * FROM races WHERE id = ?`);
-
-/** Persist one completed race + its lane results in a single transaction. Returns the row id. */
-export const saveRace = db.transaction((meta: RaceMeta, lanes: LaneRow[]): number => {
-  const info = insertRace.run(meta as unknown as Record<string, unknown>);
-  const raceDbId = Number(info.lastInsertRowid);
-  for (const l of lanes) insertLane.run(raceDbId, l.lane, l.time, l.place, l.finished ? 1 : 0);
-  return raceDbId;
-});
-
-function hydrate(r: any): StoredRace {
-  return {
-    id: r.id,
-    eventNum: r.event_num,
-    heatNum: r.heat_num,
-    raceId: r.race_id,
-    datasetNum: r.dataset_num,
-    startedAt: r.started_at,
-    completedAt: r.completed_at,
-    lanes: (selectLanes.all(r.id) as any[]).map((l) => ({
-      lane: l.lane,
-      time: l.time,
-      place: l.place,
-      finished: !!l.finished,
-    })),
-  };
+// Load the store once at startup. Corrupt/unreadable file → start empty (and the
+// bad file is left in place for inspection rather than silently overwritten until
+// the next save).
+function load(): Store {
+  if (!existsSync(JSON_PATH)) return { nextId: 1, races: [] };
+  try {
+    const data = JSON.parse(readFileSync(JSON_PATH, "utf8"));
+    if (data && Array.isArray(data.races) && typeof data.nextId === "number") return data as Store;
+  } catch { /* fall through to empty */ }
+  console.warn(`  ⚠️  ${JSON_PATH} unreadable — starting with an empty results store`);
+  return { nextId: 1, races: [] };
 }
 
+const store: Store = load();
+
+// Atomic write: serialize to a temp file then rename over the target, so a crash
+// mid-write can never corrupt the results.
+function persist(): void {
+  const tmp = JSON_PATH + ".tmp";
+  writeFileSync(tmp, JSON.stringify(store, null, 2));
+  renameSync(tmp, JSON_PATH);
+}
+
+/** Persist one completed race + its lane results. Returns the new race id. */
+export function saveRace(meta: RaceMeta, lanes: LaneRow[]): number {
+  const id = store.nextId++;
+  store.races.push({
+    id,
+    eventNum: meta.eventNum,
+    heatNum: meta.heatNum,
+    raceId: meta.raceId,
+    datasetNum: meta.datasetNum,
+    startedAt: meta.startedAt,
+    completedAt: meta.completedAt,
+    lanes: lanes.map((l) => ({ lane: l.lane, time: l.time, place: l.place, finished: !!l.finished })),
+  });
+  persist();
+  return id;
+}
+
+/** Most-recent races first, capped at `limit`. */
 export function listResults(limit = 200): StoredRace[] {
-  return (selectRaces.all(limit) as any[]).map(hydrate);
+  return [...store.races].sort((a, b) => b.id - a.id).slice(0, limit);
 }
 
 export function getResult(id: number): StoredRace | null {
-  const r = selectRace.get(id) as any;
-  return r ? hydrate(r) : null;
+  return store.races.find((r) => r.id === id) ?? null;
 }

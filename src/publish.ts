@@ -1,7 +1,7 @@
 /**
  * Publish the static public results site.
  *   npm run publish
- * Reads results.db (+ optional roster.csv) and writes public/results.html —
+ * Reads results.json (+ optional roster.csv) and writes public/results.html —
  * a single self-contained file you can host anywhere.
  */
 import { writeSite } from "./site.js";
