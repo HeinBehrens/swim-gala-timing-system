@@ -426,38 +426,77 @@ function fmtMMSShh(seconds: number): string {
   const s = seconds - m * 60;
   return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`;
 }
-function exportBaseName(ext: string): string {
+// Dolphin filename convention: AAA-BBB-CC[C]X[-]NNNN (AAA dataset 001-999, BBB
+// event, CC/CCC heat, X round letter, NNNN race id). Verified against real
+// samples: .do3 uses a 2-digit heat with NO dash before the race id
+// (008-000-00F0001.do3); .do4 uses a 3-digit heat WITH a dash (008-000-001A-0010.do4).
+function exportBaseName(ext: "do3" | "do4" | "lif"): string {
+  const ds = String(race.datasetNum).padStart(3, "0");
   const ev = String(race.eventNum).padStart(3, "0");
-  const ht = String(race.heatNum).padStart(2, "0");
   const id = String(race.raceIdCounter).padStart(4, "0");
-  return `${race.datasetNum}-${ev}-${ht}F-${id}.${ext}`;
+  const round = "F"; // we only run timed finals
+  if (ext === "do4") {
+    const ht = String(race.heatNum).padStart(3, "0");
+    return `${ds}-${ev}-${ht}${round}-${id}.do4`;
+  }
+  const ht = String(race.heatNum).padStart(2, "0");
+  return `${ds}-${ev}-${ht}${round}${id}.${ext}`;
 }
-// Colorado Time Systems "Dolphin" .do3 result file (final times only). Sport
-// Systems / Hy-Tek Meet Manager import this as "Colorado Time Systems" AOE; the
-// filename already follows the AAA-BBB-CCCXNNNN convention via exportBaseName().
-// Content layout (best-effort — see notes):
-//   <eee>-<hh>-1;<dataset>;<raceId>;All       header
-//   Lane1;<seconds.hh>;0;0                     one line per lane
-//   ...
-// Times are TOTAL SECONDS with 2 decimals (Dolphin convention, e.g. 143.31 =
-// 2:23.31); 0 = no time. The final time goes in column 1; the other two columns
-// are split/extra-button slots we don't have. NOTE: genuine Dolphin files end
-// with a checksum line which we omit (most importers ignore it) — if Sport
-// Systems rejects the file, that and the header punctuation are what to match
-// against a real sample.
+
+// Genuine Dolphin files end with a 16-hex-char checksum line. The algorithm is
+// undocumented; importers we can inspect (e.g. Wahoo! Results) SKIP this line
+// entirely, so a well-formed 16-hex value satisfies the file shape. We derive it
+// deterministically from the body (FNV-1a, widened to 64 bits). If Sport Systems
+// turns out to validate it, this is the single thing to replace with the real
+// algorithm (needs a vendor sample to reverse-engineer).
+function dolphinChecksum(body: string): string {
+  let h1 = 0x811c9dc5 >>> 0;
+  for (let i = 0; i < body.length; i++) {
+    h1 = Math.imul(h1 ^ body.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  let h2 = Math.imul((h1 ^ 0xdeadbeef) >>> 0, 0x01000193) >>> 0;
+  return (h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0")).toUpperCase();
+}
+
+// Build a Colorado Dolphin do3/do4 result file — Sport Systems / Hy-Tek Meet
+// Manager import these as "Colorado Time Systems" AOE. Layout verified against
+// real sample files (Wahoo! Results test corpus):
+//   header:    <event>;<heat>;<num_splits>;<round>
+//   10 lanes:  do3 → "<n>;t;t;t" (bare number, blanks for no time)
+//              do4 → "Lane<n>;t;t;t" (0;0;0 for no time)
+//   trailer:   16-hex checksum line
+// Times are TOTAL SECONDS, 2 decimals (e.g. 143.31 = 2:23.31). We have one
+// electronic time per lane, replicated across all three watch columns so the
+// importer consolidates onto it cleanly. CRLF endings (Windows AOE convention).
+function buildDolphin(ext: "do3" | "do4"): string {
+  const isDo4 = ext === "do4";
+  const prefix = isDo4 ? "Lane" : "";
+  const empty = isDo4 ? "0;0;0" : ";;";
+  const rows: string[] = [];
+  rows.push(`${race.eventNum};${race.heatNum};1;Final`); // event;heat;num_splits;round
+  for (let lane = 1; lane <= 10; lane++) {
+    const r = lane <= NUM_LANES ? race.laneResult(lane) : null;
+    if (r !== null) {
+      const t = r.toFixed(2);
+      rows.push(`${prefix}${lane};${t};${t};${t}`);
+    } else {
+      rows.push(`${prefix}${lane};${empty}`);
+    }
+  }
+  const body = rows.join("\r\n") + "\r\n";
+  return body + dolphinChecksum(body) + "\r\n";
+}
+
 function exportDo3(): string {
   mkdirSync(EXPORTS_DIR, { recursive: true });
   const name = exportBaseName("do3");
-  const ev = String(race.eventNum).padStart(3, "0");
-  const ht = String(race.heatNum).padStart(2, "0");
-  const lines: string[] = [];
-  lines.push(`${ev}-${ht}-1;${race.datasetNum};${race.raceIdCounter};All`);
-  for (let lane = 1; lane <= NUM_LANES; lane++) {
-    const r = race.laneResult(lane);
-    const t = r !== null ? r.toFixed(2) : "0";
-    lines.push(`Lane${lane};${t};0;0`);
-  }
-  writeFileSync(join(EXPORTS_DIR, name), lines.join("\n") + "\n");
+  writeFileSync(join(EXPORTS_DIR, name), buildDolphin("do3"));
+  return name;
+}
+function exportDo4(): string {
+  mkdirSync(EXPORTS_DIR, { recursive: true });
+  const name = exportBaseName("do4");
+  writeFileSync(join(EXPORTS_DIR, name), buildDolphin("do4"));
   return name;
 }
 function exportLif(): string {
@@ -484,10 +523,11 @@ function exportLif(): string {
   writeFileSync(join(EXPORTS_DIR, name), lines.join("\n") + "\n");
   return name;
 }
-function doExport(ws: WebSocket, which: "do3" | "lif" | "both"): void {
+function doExport(ws: WebSocket, which: "do3" | "do4" | "lif" | "both"): void {
   try {
     const names: string[] = [];
     if (which === "do3" || which === "both") names.push(exportDo3());
+    if (which === "do4" || which === "both") names.push(exportDo4());
     if (which === "lif" || which === "both") names.push(exportLif());
     for (const filename of names) {
       send(ws, { type: "export_ready", filename, url: `/exports/${filename}` });
@@ -593,6 +633,9 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
       break;
     case "export_do3":
       doExport(ws, "do3");
+      break;
+    case "export_do4":
+      doExport(ws, "do4");
       break;
     case "export_lif":
       doExport(ws, "lif");
