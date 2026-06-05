@@ -91,6 +91,28 @@ Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth). Sample data
 lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 `roster.csv` / `events.csv` (the live files are git-ignored).
 
+## Importing heats / start lists (Lenex)
+
+Instead of hand-editing `roster.csv`/`events.csv`, import them straight from your
+meet software's **Lenex** export (the standard Sport Systems and most meet
+programs produce):
+
+```bash
+npm run import -- path/to/meet.lef     # plain-XML Lenex
+npm run import -- path/to/meet.lxf     # zipped Lenex (handled automatically)
+```
+
+It writes `events.csv` (event, name, stroke, distance, sex, agegroup) and
+`roster.csv` (event, heat, lane, name, age, sex, club) — exactly what the results
+page consumes — and prints a summary of events/heats/entries found. Lane
+assignments are required in the export (entries without a lane are skipped).
+
+> Lenex is a published standard and Sport Systems is compliant, but programs vary
+> slightly in attribute usage. If a field maps oddly, the whole mapping lives in
+> `lenexToRows()` in `src/import.ts` and is easy to adjust — send a real export
+> and I'll tune it. Hy-Tek (`.hy3`) or a plain CSV start list can be added the
+> same way.
+
 ## Testing without hardware (no ESP32)
 
 You can exercise the **entire pipeline** — race clock, lane finishes, results,

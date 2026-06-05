@@ -8,6 +8,7 @@
     "enroll": "tsx src/enroll.ts",
     "monitor": "tsx src/monitor.ts",
     "publish": "tsx src/publish.ts",
+    "import": "tsx src/import.ts",
     "latency": "tsx src/latency-test.ts",
     "simul": "tsx src/simultaneous-test.ts",
     "countdown": "tsx src/countdown-test.ts",
