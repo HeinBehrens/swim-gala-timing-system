@@ -15,7 +15,7 @@
  * The server also regenerates it after every completed heat.
  */
 
-import { listResults } from "./db.js";
+import { listResults } from "./store.js";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
