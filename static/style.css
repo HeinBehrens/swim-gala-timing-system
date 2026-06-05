@@ -147,6 +147,27 @@ body.race-bg-running::before {
   align-items: center;
 }
 
+/* Ashford Town SC club logo — light chip so the dark-blue/grey marks show on the dark nav */
+.club-logo {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.75rem;
+  padding: 4px 7px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+.club-logo:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+.club-logo img {
+  display: block;
+  height: 28px;
+  width: auto;
+}
+
 .logo {
   display: flex;
   align-items: center;
@@ -313,6 +334,35 @@ body.race-bg-running::before {
   background: var(--glass-border);
 }
 
+/* Schedule (event/heat) dropdown — matches the num-input look */
+.schedule-select {
+  max-width: 260px;
+  padding: 0.4rem 1.8rem 0.4rem 0.6rem;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.schedule-select:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+}
+.schedule-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 /* Race State Badge */
 .race-state-badge {
   display: flex;
@@ -459,6 +509,18 @@ body.race-bg-running::before {
   cursor: not-allowed;
   transform: none;
   filter: none;
+}
+
+/* Secondary buttons (Scan networks, Import meet, Reload roster) — had no rule, so
+   they fell back to the browser's light-grey default behind .btn's white text and
+   were unreadable. Give them a readable translucent fill on the dark panel. */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* Ripple effect */
@@ -1106,6 +1168,9 @@ body.race-bg-running::before {
   }
   .logo-text {
     font-size: 1.1rem;
+  }
+  .club-logo img {
+    height: 22px;
   }
   .controls-row {
     gap: 0.4rem;

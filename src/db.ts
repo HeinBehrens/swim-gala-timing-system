@@ -90,3 +90,8 @@ export function listResults(limit = 200): StoredRace[] {
 export function getResult(id: number): StoredRace | null {
   return store.races.find((r) => r.id === id) ?? null;
 }
+
+/** Distinct `${event}-${heat}` keys that have at least one saved (completed) race. */
+export function completedHeatKeys(): Set<string> {
+  return new Set(store.races.map((r) => `${r.eventNum}-${r.heatNum}`));
+}

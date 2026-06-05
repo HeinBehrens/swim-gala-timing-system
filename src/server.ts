@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Esp32Gateway, PressEvent, DEFAULT_PORT, DEFAULT_TCP_HOST, DEFAULT_TCP_PORT } from "./esp32.js";
 import { importLenexBuffer } from "./import.js";
-import { saveRace, listResults, LaneRow } from "./db.js";
+import { saveRace, listResults, completedHeatKeys, LaneRow } from "./db.js";
 import { writeSite } from "./site.js";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -284,6 +284,38 @@ function reloadRoster(): void {
 }
 reloadRoster(); // initial load at startup
 
+// ── Schedule (distinct event/heat from the imported roster) ──────────────────
+// Drives the control-panel selector and the auto-advance. `completed` is derived
+// from the persisted results store, so it survives a server restart.
+interface ScheduleEntry { event: number; heat: number; event_name: string; swimmers: number; completed: boolean }
+function buildSchedule(): ScheduleEntry[] {
+  const seen = new Map<string, { event: number; heat: number; swimmers: number }>();
+  for (const key of roster.keys()) {
+    const parts = key.split("-");
+    const event = Number(parts[0]), heat = Number(parts[1]);
+    if (!event || !heat) continue;
+    const k = `${event}-${heat}`;
+    const cur = seen.get(k) ?? { event, heat, swimmers: 0 };
+    cur.swimmers += 1;
+    seen.set(k, cur);
+  }
+  const done = completedHeatKeys();
+  return [...seen.values()]
+    .sort((a, b) => a.event - b.event || a.heat - b.heat)
+    .map((e) => ({
+      event: e.event, heat: e.heat,
+      event_name: eventNames.get(e.event) ?? "",
+      swimmers: e.swimmers,
+      completed: done.has(`${e.event}-${e.heat}`),
+    }));
+}
+
+/** First heat in the schedule that has not been completed, or null if all done. */
+function firstUncompletedHeat(): { event: number; heat: number } | null {
+  const next = buildSchedule().find((s) => !s.completed);
+  return next ? { event: next.event, heat: next.heat } : null;
+}
+
 function fullState(): Record<string, unknown> {
   const lanes: Record<number, { time: number | null; finished: boolean; battery: number | null; name: string; club: string }> = {};
   for (let i = 1; i <= NUM_LANES; i++) {
@@ -303,6 +335,7 @@ function fullState(): Record<string, unknown> {
     start_time: race.startWall, elapsed: race.elapsedSeconds(),
     lanes, ble: bleConnected,
     wifi: wifiState, wifi_detail: wifiDetail, config: cfg,
+    schedule: buildSchedule(),
   };
 }
 
@@ -370,6 +403,7 @@ function settleCompletion(): void {
   if (race.state === "completed") {
     broadcastRaceState();
     persistIfCompleted();
+    broadcast(fullState()); // refresh schedule so the just-finished heat shows as completed
   }
 }
 
@@ -629,8 +663,28 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
       break;
 
     case "reset":
-    case "reset_race":
-      race.reset(); broadcastRaceState();
+    case "reset_race": {
+      race.reset();
+      // Auto-advance: after finishing a heat, Reset moves on to the next heat that
+      // hasn't been completed yet (the just-finished one is now excluded). If an
+      // aborted heat wasn't completed, it stays the first-uncompleted, so we hold.
+      const next = firstUncompletedHeat();
+      if (next && (next.event !== race.eventNum || next.heat !== race.heatNum)) {
+        race.eventNum = next.event; race.heatNum = next.heat; reloadRoster();
+      }
+      broadcast(fullState());
+      break;
+    }
+
+    case "restart_gateway":
+    case "restart_esp":
+      if (gatewayRef) {
+        gatewayRef.restart().then((r) => {
+          toast(r.ok ? "ESP32 restarting…" : `ESP32 restart failed: ${r.detail}`, r.ok ? "info" : "error");
+        });
+      } else {
+        toast("ESP32 restart failed: no gateway", "error");
+      }
       break;
 
     case "manual_time": {

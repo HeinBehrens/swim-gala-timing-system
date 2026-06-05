@@ -38,6 +38,7 @@ class SwimTimerApp {
       stateDot: document.querySelector('#race-state-badge .state-dot'),
       eventInput: document.getElementById('event-number'),
       heatInput: document.getElementById('heat-number'),
+      scheduleSelect: document.getElementById('schedule-select'),
       btnPrepare: document.getElementById('btn-prepare'),
       btnStart: document.getElementById('btn-start'),
       btnStop: document.getElementById('btn-stop'),
@@ -57,6 +58,7 @@ class SwimTimerApp {
       toastContainer: document.getElementById('toast-container'),
       btnSimStart: document.getElementById('btn-sim-start'),
       btnReenroll: document.getElementById('btn-reenroll'),
+      btnRestartEsp: document.getElementById('btn-restart-esp'),
       enrollStatus: document.getElementById('enroll-status'),
       btnWifiProv: document.getElementById('btn-wifi-prov'),
       wifiSsid: document.getElementById('wifi-ssid'),
@@ -119,6 +121,16 @@ class SwimTimerApp {
       });
     }
 
+    // Restart ESP32 gateway — confirm first (it briefly drops the link).
+    if (this.els.btnRestartEsp) {
+      this.els.btnRestartEsp.addEventListener('click', () => {
+        const ok = window.confirm(
+          'Restart the ESP32 gateway?\n\nThe board reboots and the link drops for a few seconds, then reconnects automatically. Do this only between heats.'
+        );
+        if (ok) this.sendAction('restart_gateway', {});
+      });
+    }
+
     // MAC address config inputs
     document.querySelectorAll('.mac-input').forEach(input => {
       input.addEventListener('change', () => {
@@ -168,6 +180,47 @@ class SwimTimerApp {
         heat: parseInt(this.els.heatInput.value, 10) || 1,
       });
     });
+    // Schedule dropdown — value is "event-heat"; mirror it into the number inputs
+    // and tell the server, reusing the same set_event_heat action.
+    if (this.els.scheduleSelect) {
+      this.els.scheduleSelect.addEventListener('change', () => {
+        const val = this.els.scheduleSelect.value;
+        if (!val) return;
+        const [ev, ht] = val.split('-').map((n) => parseInt(n, 10));
+        if (!ev || !ht) return;
+        this.els.eventInput.value = ev;
+        this.els.heatInput.value = ht;
+        this.sendAction('set_event_heat', { event: ev, heat: ht });
+      });
+    }
+  }
+
+  /* ── Schedule selector ── */
+  renderSchedule(schedule, curEvent, curHeat) {
+    const sel = this.els.scheduleSelect;
+    if (!sel) return;
+    if (!Array.isArray(schedule) || schedule.length === 0) {
+      sel.innerHTML = '<option value="">— import a meet file —</option>';
+      return;
+    }
+    const cur = `${curEvent}-${curHeat}`;
+    let matched = false;
+    sel.innerHTML = schedule.map((s) => {
+      const val = `${s.event}-${s.heat}`;
+      const done = s.completed ? '✓ ' : '';
+      const name = s.event_name ? ` — ${s.event_name}` : '';
+      const sel = val === cur ? ' selected' : '';
+      if (val === cur) matched = true;
+      return `<option value="${val}"${sel}>${done}E${s.event} H${s.heat}${name}</option>`;
+    }).join('');
+    // If the current event/heat isn't in the schedule (manual entry), show it too.
+    if (!matched && curEvent != null) {
+      const opt = document.createElement('option');
+      opt.value = cur;
+      opt.textContent = `E${curEvent} H${curHeat} (manual)`;
+      opt.selected = true;
+      sel.appendChild(opt);
+    }
   }
 
   bindKeyboardShortcuts() {
@@ -482,6 +535,7 @@ class SwimTimerApp {
     if (data.event != null) this.els.eventInput.value = data.event;
     if (data.heat != null) this.els.heatInput.value = data.heat;
     this.setEventName(data.event_name || '');
+    this.renderSchedule(data.schedule, data.event, data.heat);
 
     // Set race state
     if (data.state) {

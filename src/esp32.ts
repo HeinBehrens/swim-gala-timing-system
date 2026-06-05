@@ -85,17 +85,22 @@ export class Esp32Gateway extends EventEmitter {
     }
   }
 
-  // Find an attached USB-serial device. Prefers macOS callout (cu.*) bridges
-  // (CH340/CP210x/FTDI); maps tty.* -> cu.* so we don't block on carrier-detect.
+  // Find an attached USB-serial device. PREFERS the USB-UART bridge
+  // (CH340/CP210x/FTDI): on this gateway the firmware's Serial — the PRESS lines —
+  // comes out the bridge (e.g. /dev/cu.usbserial-10). The native-USB /dev/cu.usbmodem*
+  // (USB-JTAG) is flashing-only and carries NO press data, so picking it makes the
+  // link look "connected" while zero presses arrive — it's only a last resort (boards
+  // that have ONLY native USB still work). Maps tty.* -> cu.* (callout, no carrier wait).
   static async detectPort(): Promise<string | undefined> {
     let ports: Awaited<ReturnType<typeof SerialPort.list>>;
     try { ports = await SerialPort.list(); } catch { return undefined; }
-    const looksLikeEsp = (p: { path: string; manufacturer?: string }) =>
-      /usbserial|wchusbserial|SLAB_USBtoUART|usbmodem/i.test(p.path) ||
-      /CH340|CP210|FTDI|Silicon Labs|wch|Espressif/i.test(p.manufacturer ?? "");
-    const hit = ports.find(looksLikeEsp);
+    const isBridge = (p: { path: string; manufacturer?: string }) =>
+      /usbserial|wchusbserial|SLAB_USBtoUART/i.test(p.path) ||
+      /CH340|CP210|FTDI|Silicon Labs|wch/i.test(p.manufacturer ?? "");
+    const isNativeUsb = (p: { path: string; manufacturer?: string }) =>
+      /usbmodem/i.test(p.path) || /Espressif/i.test(p.manufacturer ?? "");
+    const hit = ports.find(isBridge) ?? ports.find(isNativeUsb);
     if (!hit) return undefined;
-    // macOS lists tty.*; open the cu.* callout device instead.
     return hit.path.replace("/dev/tty.", "/dev/cu.");
   }
 
@@ -228,6 +233,33 @@ export class Esp32Gateway extends EventEmitter {
   send(line: string): void {
     if (this.port && this.port.isOpen) this.port.write(line);
     else if (this.socket && !this.socket.destroyed) this.socket.write(line);
+  }
+
+  /**
+   * Reboot the ESP32 over the serial line with an esptool-style DTR/RTS pulse:
+   * RTS drives EN (reset), DTR drives IO0. Pulsing EN low→high while IO0 stays
+   * high reboots into firmware (not the bootloader). There is no reset line over
+   * Wi-Fi/TCP, so that transport reports unsupported.
+   */
+  restart(): Promise<{ ok: boolean; detail: string }> {
+    const port = this.port;
+    if (!port || !port.isOpen) {
+      return Promise.resolve({
+        ok: false,
+        detail: this.socket ? "gateway is on Wi-Fi — no serial reset line" : "no serial connection",
+      });
+    }
+    return new Promise((resolve) => {
+      // EN low (RTS asserted) + IO0 high (DTR cleared) → hold the chip in reset
+      port.set({ dtr: false, rts: true }, (e1) => {
+        if (e1) { resolve({ ok: false, detail: e1.message }); return; }
+        setTimeout(() => {
+          // EN high → boot into firmware
+          port.set({ dtr: false, rts: false }, (e2) =>
+            resolve(e2 ? { ok: false, detail: e2.message } : { ok: true, detail: "reset pulse sent" }));
+        }, 150);
+      });
+    });
   }
 
   close(): Promise<void> {
