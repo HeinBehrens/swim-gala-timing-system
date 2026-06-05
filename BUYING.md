@@ -41,9 +41,9 @@ reads its BTHome v2 broadcasts and timestamps them on-chip.
 
 ## 2. Gateway board — ESP32-C5-DevKitC-1
 
-The board running the v11 firmware (`firmware/esp32_shelly_scanner/`): BLE observer
-+ Wi-Fi/USB streaming + the GPIO start/beacon/beep. Get the **C5 DevKitC-1**; the
-firmware FQBN and pin map target this board specifically.
+The board running the gateway firmware (`firmware/esp32_shelly_scanner/`, v13): BLE
+observer + Wi-Fi/USB streaming + the GPIO start/beacon/beep. Get the **C5 DevKitC-1**;
+the firmware FQBN and pin map target this board specifically.
 
 - **Recommended variant:** `ESP32-C5-DevKitC-1-N8R4` (8 MB flash, 4 MB PSRAM).
   `N8R8` (8 MB PSRAM) also works.
