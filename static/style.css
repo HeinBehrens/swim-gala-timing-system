@@ -506,17 +506,16 @@ body::after {
 }
 .btn-export:hover { box-shadow: 0 4px 20px rgba(255, 179, 71, 0.35); }
 
+.btn-import {
+  background: linear-gradient(135deg, #6d28d9, #8b5cf6);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.2);
+}
+.btn-import:hover { box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35); }
+
 .btn-sm {
   padding: 0.4rem 0.85rem;
   font-size: 0.75rem;
   border-radius: var(--radius-sm);
-}
-
-.btn-export-do3 {
-  background: linear-gradient(135deg, #6d28d9, #8b5cf6);
-}
-.btn-export-lif {
-  background: linear-gradient(135deg, #7c3aed, #a78bfa);
 }
 
 /* ── Lane Grid ── */

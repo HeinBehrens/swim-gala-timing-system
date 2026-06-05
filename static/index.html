@@ -88,9 +88,13 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           <span>Reset</span>
         </button>
-        <button class="btn btn-export" id="btn-export" title="Export Results (E)">
+        <button class="btn btn-import" id="btn-import" title="Import meet file (Lenex .lef/.lxf)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Import</span>
+        </button>
+        <button class="btn btn-export" id="btn-export" title="Export results (.do3 for Sport Systems)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Export</span>
+          <span>Export .do3</span>
         </button>
       </div>
     </section>
@@ -192,16 +196,6 @@
     <section id="results-panel" class="results-panel hidden">
       <div class="results-header">
         <h2 class="section-title">Race Results</h2>
-        <div class="results-actions">
-          <button class="btn btn-sm btn-export-do3" id="btn-export-do3" title="Download .do3 file">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            .do3
-          </button>
-          <button class="btn btn-sm btn-export-lif" id="btn-export-lif" title="Download .lif file">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            .lif
-          </button>
-        </div>
       </div>
       <div class="results-table-wrap glass-card">
         <table class="results-table" id="results-table">

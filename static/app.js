@@ -56,8 +56,6 @@ class SwimTimerApp {
       wifiStatus: document.getElementById('wifi-status'),
       toastContainer: document.getElementById('toast-container'),
       btnSimStart: document.getElementById('btn-sim-start'),
-      btnExportDo3: document.getElementById('btn-export-do3'),
-      btnExportLif: document.getElementById('btn-export-lif'),
       btnReenroll: document.getElementById('btn-reenroll'),
       enrollStatus: document.getElementById('enroll-status'),
       btnWifiProv: document.getElementById('btn-wifi-prov'),
@@ -92,12 +90,11 @@ class SwimTimerApp {
       });
     });
 
-    // Meet import (Lenex) — friendly drag-drop + browse picker
+    // Meet import (Lenex) — friendly drag-drop + browse picker (Settings) and the
+    // top toolbar Import button (quick browse).
     this.setupMeetImport();
-
-    // Export buttons
-    this.els.btnExportDo3.addEventListener('click', () => this.sendAction('export_do3', {}));
-    this.els.btnExportLif.addEventListener('click', () => this.sendAction('export_lif', {}));
+    const btnImport = document.getElementById('btn-import');
+    if (btnImport) btnImport.addEventListener('click', () => this.pickAndImportMeet());
 
     // Configure ESP32 Wi-Fi over Bluetooth (Web Bluetooth)
     if (this.els.btnWifiProv) {
@@ -629,7 +626,8 @@ class SwimTimerApp {
   }
 
   exportResults() {
-    this.sendAction('export', {});
+    // The .do3 is the file Sport Systems imports (single finish touch = no splits).
+    this.sendAction('export_do3', {});
   }
 
   /* ── Clock ── */
@@ -797,22 +795,43 @@ class SwimTimerApp {
     importBtn.addEventListener('click', async () => {
       if (!chosen) return;
       importBtn.disabled = true;
-      if (statusEl) { statusEl.className = 'import-status'; statusEl.textContent = 'Importing…'; }
-      try {
-        const buf = await chosen.arrayBuffer();
-        const res = await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
-        const s = data.summary;
-        if (statusEl) { statusEl.className = 'import-status ok'; statusEl.textContent = `✓ ${s.entries} swimmers · ${s.eventCount} events · ${s.heatCount} heats`; }
-      } catch (err) {
-        if (statusEl) { statusEl.className = 'import-status err'; statusEl.textContent = '✗ ' + err.message; }
-      } finally {
-        importBtn.disabled = !chosen;
-      }
+      await this.uploadMeetFile(chosen, statusEl);
+      importBtn.disabled = !chosen;
     });
 
     if (reloadBtn) reloadBtn.addEventListener('click', () => this.sendAction('reload_roster', {}));
+  }
+
+  // Toolbar "Import" button — open a file chooser and import immediately.
+  pickAndImportMeet() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.lef,.lxf,.xml';
+    input.addEventListener('change', () => {
+      if (input.files && input.files[0]) this.uploadMeetFile(input.files[0], null);
+    });
+    input.click();
+  }
+
+  // POST a Lenex file to /api/import; report via the settings status line (if
+  // given) and always via a toast so it works from the toolbar too.
+  async uploadMeetFile(file, statusEl) {
+    if (statusEl) { statusEl.className = 'import-status'; statusEl.textContent = 'Importing…'; }
+    try {
+      const buf = await file.arrayBuffer();
+      const res = await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
+      const s = data.summary;
+      const msg = `${s.entries} swimmers · ${s.eventCount} events · ${s.heatCount} heats`;
+      if (statusEl) { statusEl.className = 'import-status ok'; statusEl.textContent = '✓ ' + msg; }
+      this.showToast('Imported ' + msg, 'success');
+      return true;
+    } catch (err) {
+      if (statusEl) { statusEl.className = 'import-status err'; statusEl.textContent = '✗ ' + err.message; }
+      this.showToast('Import failed: ' + err.message, 'error');
+      return false;
+    }
   }
 
   updateLaneCard(lane, time, isFinish) {
