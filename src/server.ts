@@ -392,7 +392,16 @@ function persistIfCompleted(): void {
     race.savedToStore = true;
     console.log(`  💾 Saved results: event ${race.eventNum} heat ${race.heatNum} -> results.json #${id}`);
     try { writeSite(); } catch (e) { console.warn(`  ⚠️  Site publish failed: ${(e as Error).message}`); }
-    toast(`Results saved (event ${race.eventNum}, heat ${race.heatNum})`, "success");
+    // Auto-export the AOE .do3 for meet software the moment a heat finalises, so no
+    // manual Export click is needed between heats. (.do4/.lif stay manual.)
+    try {
+      const filename = exportDo3();
+      broadcast({ type: "export_ready", filename, url: `/exports/${filename}` });
+      console.log(`  📤 Auto-exported ${filename}`);
+    } catch (e) {
+      console.warn(`  ⚠️  Auto-export failed: ${(e as Error).message}`);
+    }
+    toast(`Results saved + exported (event ${race.eventNum}, heat ${race.heatNum})`, "success");
   } catch (e) {
     console.warn(`  ⚠️  Failed to save results: ${(e as Error).message}`);
   }

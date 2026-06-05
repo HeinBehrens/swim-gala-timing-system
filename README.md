@@ -73,9 +73,11 @@ imports as **Automatic Officiating Equipment (AOE)**:
   (single finish touch per lane = no splits).
 - **FinishLynx `.lif`** — for photo-finish/Lynx workflows.
 
-Filenames follow the Dolphin convention (`AAA-BBB-CCXNNNN.do3` /
-`AAA-BBB-CCCX-NNNN.do4`). WebSocket actions: `export_do3`, `export_do4`,
-`export_lif`, or `export` (all three). One caveat: the trailing 16-hex checksum
+The **`.do3` is exported automatically the moment each heat is finalised** (one
+file per heat, no manual step) — so the meet software can pick it up between heats.
+`.do4`/`.lif` stay manual via the **Export** button or the WebSocket actions
+`export_do3`, `export_do4`, `export_lif`, or `export` (all three). Filenames follow
+the Dolphin convention (`AAA-BBB-CCXNNNN.do3` / `AAA-BBB-CCCX-NNNN.do4`). One caveat: the trailing 16-hex checksum
 is a deterministic placeholder (the real algorithm is undocumented; importers we
 tested skip it) — if an import is rejected, that's the one byte-field to match
 against a vendor sample.
