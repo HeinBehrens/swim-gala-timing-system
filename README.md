@@ -99,8 +99,9 @@ lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 Pick the event/heat from the **Schedule** dropdown (built from the imported roster;
 `✓` marks heats already run). Then **Prepare** → press the **starter button** (or
 **Start**) → lane buttons record finishes → **Stop** to finalise. Any lane without
-a recorded time is scored **NT**, so empty lanes need no special handling. **Reset**
-auto-advances to the next not-yet-completed heat. The whole background goes
+a recorded time is scored **NT**, so empty lanes need no special handling. Once a
+heat is done, clicking **Prepare** again (or **Reset**) auto-advances to the next
+not-yet-completed heat — so you step through the schedule hands-free. The whole background goes
 black → **green** (ready) → **yellow** (running) as a deck-visible cue, mirrored on
 `/remote` and `/view`. Settings → **Gateway** has a **Restart ESP32** button (over
 USB serial) for when the board needs a reboot.
