@@ -137,19 +137,6 @@ class SwimTimerApp {
       });
     }
 
-    // HA config
-    const haUrl = document.getElementById('ha-url');
-    const haToken = document.getElementById('ha-token');
-    if (haUrl) {
-      haUrl.addEventListener('change', () => {
-        this.sendAction('set_config', { key: 'ha_url', value: haUrl.value.trim() });
-      });
-    }
-    if (haToken) {
-      haToken.addEventListener('change', () => {
-        this.sendAction('set_config', { key: 'ha_token', value: haToken.value.trim() });
-      });
-    }
 
     // Ripple effect on all buttons
     document.querySelectorAll('.btn').forEach(btn => {
@@ -481,14 +468,6 @@ class SwimTimerApp {
     if (config.mac_starter) {
       const el = document.getElementById('mac-starter');
       if (el) el.value = config.mac_starter;
-    }
-    if (config.ha_url) {
-      const el = document.getElementById('ha-url');
-      if (el) el.value = config.ha_url;
-    }
-    if (config.ha_token) {
-      const el = document.getElementById('ha-token');
-      if (el) el.value = config.ha_token;
     }
   }
 

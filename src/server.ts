@@ -10,7 +10,7 @@
  *
  * Protocol note: this matches what static/app.js ACTUALLY parses (which had drifted
  * from server.py). Server→client messages: full_state, race_state, lane_time,
- * connection_status{ble,ha}, battery_status{lane,level}, config, toast,
+ * connection_status{ble}, battery_status{lane,level}, config, toast,
  * export_ready{filename,url}. Client→server actions accept BOTH the dashboard's
  * vocabulary (prepare/start/stop/reset/export/export_do3/export_lif/simulate_lane/
  * set_event_heat/set_config/get_state) and the phone remote's (prepare_race/
@@ -62,14 +62,13 @@ interface DashConfig {
   mac_lane_1?: string; mac_lane_2?: string; mac_lane_3?: string;
   mac_lane_4?: string; mac_lane_5?: string; mac_lane_6?: string;
   mac_starter?: string;
-  ha_url?: string; ha_token?: string;
 }
 
 // ── Lane map (from lanes.json, overridable via set_config) ───────────────────
 interface LaneButton { role: string; label: string; mac: string }
 interface LanesFile { port: string; baud: number; enrolledAt: string; buttons: LaneButton[] }
 
-let config: DashConfig = { ha_url: "", ha_token: "" };
+let config: DashConfig = {};
 let laneByMac = new Map<string, number>(); // mac(lower) -> lane
 let starterMac = "";
 
@@ -210,7 +209,6 @@ let enrollPrevConfig: DashConfig | null = null;
 // ── WebSocket clients + broadcast helpers (app.js message shapes) ────────────
 const clients = new Set<WebSocket>();
 let bleConnected = false;
-const haConnected = false;
 // Gateway Wi-Fi link, parsed from the firmware's `WIFI<TAB>...` status lines.
 type WifiState = "connected" | "connecting" | "failed" | "idle" | "unknown";
 let wifiState: WifiState = "unknown";
@@ -240,7 +238,6 @@ function configMessage(): Record<string, unknown> {
     mac_lane_3: config.mac_lane_3 || "", mac_lane_4: config.mac_lane_4 || "",
     mac_lane_5: config.mac_lane_5 || "", mac_lane_6: config.mac_lane_6 || "",
     mac_starter: config.mac_starter || "",
-    ha_url: config.ha_url || "", ha_token: config.ha_token || "",
   };
 }
 
@@ -304,7 +301,7 @@ function fullState(): Record<string, unknown> {
     event_name: eventNames.get(race.eventNum) ?? "",
     state: race.state,
     start_time: race.startWall, elapsed: race.elapsedSeconds(),
-    lanes, ble: bleConnected, ha: haConnected,
+    lanes, ble: bleConnected,
     wifi: wifiState, wifi_detail: wifiDetail, config: cfg,
   };
 }
@@ -316,7 +313,7 @@ function broadcastLaneTime(lane: number, time: number, isFinish: boolean): void 
   broadcast({ type: "lane_time", lane, time: Math.round(time * 1000) / 1000, is_finish: isFinish });
 }
 function broadcastConnection(): void {
-  broadcast({ type: "connection_status", ble: bleConnected, ha: haConnected, wifi: wifiState, wifi_detail: wifiDetail });
+  broadcast({ type: "connection_status", ble: bleConnected, wifi: wifiState, wifi_detail: wifiDetail });
 }
 function toast(message: string, level = "info"): void {
   broadcast({ type: "toast", message, level });
@@ -667,7 +664,7 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
     case "set_config": {
       const key = String(msg.key || "");
       const value = String(msg.value || "");
-      if (key in config || /^mac_lane_[1-6]$/.test(key) || ["mac_starter", "ha_url", "ha_token"].includes(key)) {
+      if (key in config || /^mac_lane_[1-6]$/.test(key) || key === "mac_starter") {
         (config as any)[key] = key.startsWith("mac_") ? value.toLowerCase() : value;
         rebuildMaps();
         persistLanes();
