@@ -645,11 +645,21 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
       break;
 
     case "prepare":
-    case "prepare_race":
+    case "prepare_race": {
       reloadRoster();
-      race.prepare(num(msg.event ?? msg.event_num, race.eventNum), num(msg.heat ?? msg.heat_num, race.heatNum));
+      let ev = num(msg.event ?? msg.event_num, race.eventNum);
+      let ht = num(msg.heat ?? msg.heat_num, race.heatNum);
+      // If the selected heat is already completed (e.g. you just finished it and
+      // clicked Prepare again), auto-advance to the next heat still to run — so you
+      // move through the schedule without a manual Reset or dropdown change.
+      if (completedHeatKeys().has(`${ev}-${ht}`)) {
+        const next = firstUncompletedHeat();
+        if (next) { ev = next.event; ht = next.heat; }
+      }
+      race.prepare(ev, ht);
       broadcast(fullState());
       break;
+    }
 
     case "start":
     case "start_race":
