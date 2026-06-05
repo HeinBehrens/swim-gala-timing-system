@@ -21,8 +21,12 @@
  * any USB/Wi-Fi round-trip, so finish timing never inherits transport jitter.
  *
  * ⚠️ Wi-Fi/BLE coexist on one radio: enabling Wi-Fi time-slices the radio, so BLE
- *    scan duty drops below 100%. Press traffic is tiny so it's usually fine, but
- *    for maximum reliability under a full simultaneous heat, prefer USB.
+ *    scan duty drops below 100%. To protect finish capture, the gateway drops Wi-Fi
+ *    to max modem-sleep for the duration of a heat — from the starter press until
+ *    ~20 s after the last press (5 min hard cap) — handing the radio back to the
+ *    BLE scan. The station stays associated, so the TCP press stream keeps flowing
+ *    and on-chip µs timestamps keep splits exact. USB serial is unaffected and
+ *    remains the bulletproof fallback.
  *
  * Output line (tab-separated, newline-terminated), identical on both transports:
  *   PRESS<TAB>mac<TAB>button<TAB>packetId<TAB>rssi<TAB>microsSinceBoot
@@ -127,6 +131,13 @@ static uint32_t signalOffMs   = 0;       // millis() at which to switch the ligh
 static I2SClass i2s;                      // MAX98357 start-beep output
 static volatile bool toneOn = false;      // audioTask plays the beep while true
 
+// ── Heat radio policy (Wi-Fi/BLE coexistence — see heatRadioBegin/End) ────────
+static bool     heatActive  = false;            // true from the starter press until the heat goes quiet
+static uint32_t heatStartMs = 0;                // millis() when the heat began
+static uint32_t lastPressMs = 0;                // millis() of the most recent press during a heat
+static const uint32_t HEAT_QUIET_MS = 20000;    // restore full-rate Wi-Fi this long after the last press
+static const uint32_t HEAT_MAX_MS   = 300000;   // safety cap: never throttle Wi-Fi longer than 5 min
+
 // ── Wi-Fi / TCP / provisioning ───────────────────────────────────────────────
 static WiFiServer tcpServer(TCP_PORT);
 static WiFiClient tcpClient;
@@ -228,7 +239,8 @@ static void setStatus(const String &s) {
 static void connectWifi() {
   if (wifiSsid.length() == 0) { setStatus("idle (no credentials — provision via Bluetooth)"); return; }
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);              // lower latency; helps BLE/Wi-Fi coexist timing
+  // Full-rate when idle (low latency); if we reconnect mid-heat, stay in modem-sleep so BLE keeps the radio.
+  WiFi.setSleep(heatActive ? WIFI_PS_MAX_MODEM : WIFI_PS_NONE);
   WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
   setStatus("connecting to " + wifiSsid);
   uint32_t start = millis();
@@ -392,7 +404,7 @@ void setup() {
   // so a press is sent within ms, not held until the 1 s scan window ends.
   xTaskCreate(ioTask, "io", 4096, nullptr, 2, nullptr);
 
-  Serial.println("READY\tesp32-shelly-scanner\tv13");
+  Serial.println("READY\tesp32-shelly-scanner\tv14");
   // Finite-window scan loop runs in loop(); start(0) (continuous) leaks RAM in
   // this BLE library (no public setMaxResults) -> bad_alloc abort.
 }
@@ -432,6 +444,31 @@ static void fireStartSignal() {
   digitalWrite(SIGNAL_PIN, HIGH);     // 5 V USB strobe light via MOSFET
   toneOn = true;                      // audioTask streams the beep to the MAX98357
   signalOffMs = millis() + SIGNAL_MS;
+}
+
+// ── Heat radio policy (Wi-Fi/BLE coexistence) ────────────────────────────────
+// During a heat, drop Wi-Fi to max modem-sleep so the shared 2.4 GHz radio
+// favours the BLE scan (finish capture). The station stays associated, so the
+// TCP press stream keeps flowing; on-chip µs timestamps keep splits exact.
+static void heatRadioBegin() {
+  lastPressMs = millis();
+  if (heatActive) return;
+  heatActive  = true;
+  heatStartMs = millis();
+  if (wifiEnabled) {
+    WiFi.setSleep(WIFI_PS_MAX_MODEM);
+    setStatus("heat: Wi-Fi modem-sleep (BLE priority)");
+  }
+}
+
+// Restore full-rate Wi-Fi once the heat has gone quiet (or the safety cap is hit).
+static void heatRadioEnd() {
+  if (!heatActive) return;
+  heatActive = false;
+  if (wifiEnabled) {
+    WiFi.setSleep(WIFI_PS_NONE);
+    setStatus("heat done: Wi-Fi full-rate");
+  }
 }
 
 // Audio task — when toneOn, streams a SINE beep (stereo, same sample on L+R) to
@@ -515,7 +552,11 @@ static void ioTask(void *) {
                  e.mac[0], e.mac[1], e.mac[2], e.mac[3], e.mac[4], e.mac[5],
                  e.button, e.packetId, e.rssi, (long long)e.ts);
         emitLine(line);
-        if (starterSet && memcmp(e.mac, starterMac, 6) == 0) fireStartSignal();
+        if (heatActive) lastPressMs = millis();   // keep the heat alive while presses keep arriving
+        if (starterSet && memcmp(e.mac, starterMac, 6) == 0) {
+          fireStartSignal();
+          heatRadioBegin();                        // starter press → hand the radio to BLE for the heat
+        }
       }
     }
     pollCommands();                                   // host -> gateway (e.g. STARTER mac)
@@ -523,6 +564,12 @@ static void ioTask(void *) {
       digitalWrite(SIGNAL_PIN, LOW);  // light off
       toneOn = false;                 // stop the I2S beep
       signalOffMs = 0;
+    }
+    // Heat over (quiet for HEAT_QUIET_MS, or the safety cap hit) → give Wi-Fi its slots back.
+    if (heatActive &&
+        ((uint32_t)(millis() - lastPressMs) > HEAT_QUIET_MS ||
+         (uint32_t)(millis() - heatStartMs) > HEAT_MAX_MS)) {
+      heatRadioEnd();
     }
     serviceTcp();
     if (millis() - lastStatusMs > 10000) { lastStatusMs = millis(); reportCurrentStatus(); }
