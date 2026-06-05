@@ -52,9 +52,10 @@ not cancel and shows up as timing error.
   off a designated Shelly starter button, and streams each line over **both USB
   serial and Wi-Fi TCP (port 3333)**. Wi-Fi provisioned over BLE.
 - **`src/server.ts`** — Node server: serial → race state machine → live dashboard
-  (`static/`) + `/remote`, with Colorado Dolphin `.do3`/`.do4` and FinishLynx
-  `.lif` result export (see below).
-- **`src/publish.ts`** — completed heats → SQLite → single-file public results page.
+  (`static/`), phone `/remote`, and a read-only `/view` spectator screen. Includes a
+  meet-schedule selector and Colorado Dolphin `.do3`/`.do4` + FinishLynx `.lif`
+  export (see below).
+- **`src/publish.ts`** — completed heats → `results.json` → single-file public results page.
 - **`HARDWARE.md`** — start-signal kit (USB light + MAX98357 I2S beep, PCM5102 AUX
   option) and DIY finish touchpads.
 - **`BUYING.md`** — where to buy the Shelly BLU buttons and the ESP32-C5 board
@@ -93,6 +94,17 @@ gateway scans on request), then enter the password and **Configure**. Sample dat
 lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 `roster.csv` / `events.csv` (the live files are git-ignored).
 
+### Running a heat (control panel)
+
+Pick the event/heat from the **Schedule** dropdown (built from the imported roster;
+`✓` marks heats already run). Then **Prepare** → press the **starter button** (or
+**Start**) → lane buttons record finishes → **Stop** to finalise. Any lane without
+a recorded time is scored **NT**, so empty lanes need no special handling. **Reset**
+auto-advances to the next not-yet-completed heat. The whole background goes
+black → **green** (ready) → **yellow** (running) as a deck-visible cue, mirrored on
+`/remote` and `/view`. Settings → **Gateway** has a **Restart ESP32** button (over
+USB serial) for when the board needs a reboot.
+
 ## Importing heats / start lists (Lenex)
 
 Instead of hand-editing `roster.csv`/`events.csv`, import them straight from your
@@ -118,8 +130,7 @@ assignments are required in the export (entries without a lane are skipped).
 ## Testing without hardware (no ESP32)
 
 You can exercise the **entire pipeline** — race clock, lane finishes, results,
-SQLite, and AOE export — with no buttons and no gateway, using the built-in
-simulator:
+and AOE export — with no buttons and no gateway, using the built-in simulator:
 
 1. `npm install && npm start`, then open **http://localhost:8000**. (The gateway
    shows disconnected — that's fine; the simulator doesn't use it.)
@@ -128,9 +139,10 @@ simulator:
 3. **Finish each lane** by pressing number keys **`1`–`6`** (or the lane buttons /
    the phone remote at `/remote`). Each press records that lane's time at the
    moment you press it — so spacing them out gives realistic finishes.
-4. When all lanes finish, the heat completes, results save to `results.db`, and
-   you can **export** the Colorado `.do3`/`.do4` and FinishLynx `.lif` files.
-5. Change event/heat and repeat.
+4. When all lanes finish the heat completes — or click **Stop** to finalise early,
+   and any lane without a time is scored **NT**. Results save to `results.json`,
+   and you can **export** the Colorado `.do3`/`.do4` and FinishLynx `.lif` files.
+5. **Reset** advances to the next heat (or pick one from the Schedule dropdown) and repeat.
 
 This needs no enrollment (it records by lane number directly) and works on a fresh
 checkout — ideal for sharing with testers who don't have the timing hardware.
