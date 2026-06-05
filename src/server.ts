@@ -130,7 +130,7 @@ class RaceManager {
   laneTimes: Record<number, number[]> = {};
   laneFinished: Record<number, boolean> = {};
   battery: Record<number, number> = {};
-  savedToDb = false;       // guard so each completed race is persisted exactly once
+  savedToStore = false;       // guard so each completed race is persisted exactly once
 
   constructor() { this.clearLanes(); }
 
@@ -143,7 +143,7 @@ class RaceManager {
     this.raceIdCounter += 1;
     this.state = "ready";
     this.startWall = 0; this.startEspMicros = null;
-    this.savedToDb = false;
+    this.savedToStore = false;
     this.clearLanes();
   }
 
@@ -179,7 +179,7 @@ class RaceManager {
   }
 
   stop(): void { this.state = "completed"; }
-  reset(): void { this.state = "idle"; this.startWall = 0; this.startEspMicros = null; this.savedToDb = false; this.clearLanes(); }
+  reset(): void { this.state = "idle"; this.startWall = 0; this.startEspMicros = null; this.savedToStore = false; this.clearLanes(); }
 
   elapsedSeconds(): number {
     if (this.state !== "running" || !this.startWall) return 0;
@@ -368,7 +368,7 @@ function placesByLane(): Map<number, number> {
 
 // Persist a completed race exactly once.
 function persistIfCompleted(): void {
-  if (race.state !== "completed" || race.savedToDb) return;
+  if (race.state !== "completed" || race.savedToStore) return;
   const place = placesByLane();
   const lanes: LaneRow[] = [];
   for (let lane = 1; lane <= NUM_LANES; lane++) {
@@ -389,8 +389,8 @@ function persistIfCompleted(): void {
       },
       lanes
     );
-    race.savedToDb = true;
-    console.log(`  💾 Saved results: event ${race.eventNum} heat ${race.heatNum} -> results.db #${id}`);
+    race.savedToStore = true;
+    console.log(`  💾 Saved results: event ${race.eventNum} heat ${race.heatNum} -> results.json #${id}`);
     try { writeSite(); } catch (e) { console.warn(`  ⚠️  Site publish failed: ${(e as Error).message}`); }
     toast(`Results saved (event ${race.eventNum}, heat ${race.heatNum})`, "success");
   } catch (e) {

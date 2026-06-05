@@ -8,8 +8,8 @@
  *
  * File: results.json at the project root (override with env RESULTS_JSON).
  *
- * Public API is unchanged from the old SQLite layer (saveRace / listResults /
- * getResult), so callers (server.ts, site.ts) didn't have to change.
+ * Public API (saveRace / listResults / getResult) is intentionally small and
+ * stable, so callers (server.ts, site.ts) don't depend on the storage details.
  */
 
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
