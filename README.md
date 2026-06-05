@@ -46,17 +46,38 @@ not cancel and shows up as timing error.
 
 ## Components
 
-- **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v11). Captures BTHome
+- **`firmware/esp32_shelly_scanner/`** — ESP32-C5 gateway (v12). Captures BTHome
   button broadcasts, on-chip µs timestamps, dedups the advert burst by
-  `packet_id`, ISR-timed external start + horn/light/beep, streams each line over
-  **both USB serial and Wi-Fi TCP (port 3333)**. Wi-Fi provisioned over BLE.
+  `packet_id`, fires the start signal (5 V USB light + I2S beep via a MAX98357)
+  off a designated Shelly starter button, and streams each line over **both USB
+  serial and Wi-Fi TCP (port 3333)**. Wi-Fi provisioned over BLE.
 - **`src/server.ts`** — Node server: serial → race state machine → live dashboard
-  (`static/`) + `/remote`, with `.do3`/`.lif` export.
+  (`static/`) + `/remote`, with Colorado Dolphin `.do3`/`.do4` and FinishLynx
+  `.lif` result export (see below).
 - **`src/publish.ts`** — completed heats → SQLite → single-file public results page.
-- **`HARDWARE.md`** — start-signal kit (button/beacon/megaphone) and DIY finish
-  touchpads.
+- **`HARDWARE.md`** — start-signal kit (USB light + MAX98357 I2S beep, PCM5102 AUX
+  option) and DIY finish touchpads.
 - **`BUYING.md`** — where to buy the Shelly BLU buttons and the ESP32-C5 board
   (UK / EU / AliExpress, with prices).
+
+## Results export (AOE → meet software)
+
+The server writes result files into `exports/` that meet-management software
+imports as **Automatic Officiating Equipment (AOE)**:
+
+- **Colorado Dolphin `.do3`** (final times) and **`.do4`** (with split columns) —
+  imported as "Colorado Time Systems" AOE by **Sport Systems** and Hy-Tek Meet
+  Manager. Format verified against real Dolphin sample files: `event;heat;splits;round`
+  header, 10 lane lines, 16-hex checksum, CRLF. **For this system, target `.do3`**
+  (single finish touch per lane = no splits).
+- **FinishLynx `.lif`** — for photo-finish/Lynx workflows.
+
+Filenames follow the Dolphin convention (`AAA-BBB-CCXNNNN.do3` /
+`AAA-BBB-CCCX-NNNN.do4`). WebSocket actions: `export_do3`, `export_do4`,
+`export_lif`, or `export` (all three). One caveat: the trailing 16-hex checksum
+is a deterministic placeholder (the real algorithm is undocumented; importers we
+tested skip it) — if an import is rejected, that's the one byte-field to match
+against a vendor sample.
 
 ## Running
 
@@ -69,3 +90,23 @@ npm run publish    # build the public results page
 Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth). Sample data
 lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 `roster.csv` / `events.csv` (the live files are git-ignored).
+
+## Testing without hardware (no ESP32)
+
+You can exercise the **entire pipeline** — race clock, lane finishes, results,
+SQLite, and AOE export — with no buttons and no gateway, using the built-in
+simulator:
+
+1. `npm install && npm start`, then open **http://localhost:8000**. (The gateway
+   shows disconnected — that's fine; the simulator doesn't use it.)
+2. Open **Settings → Simulation Controls** and click **Simulate Start** (or press
+   the **`S`** key) to start the clock.
+3. **Finish each lane** by pressing number keys **`1`–`6`** (or the lane buttons /
+   the phone remote at `/remote`). Each press records that lane's time at the
+   moment you press it — so spacing them out gives realistic finishes.
+4. When all lanes finish, the heat completes, results save to `results.db`, and
+   you can **export** the Colorado `.do3`/`.do4` and FinishLynx `.lif` files.
+5. Change event/heat and repeat.
+
+This needs no enrollment (it records by lane number directly) and works on a fresh
+checkout — ideal for sharing with testers who don't have the timing hardware.
