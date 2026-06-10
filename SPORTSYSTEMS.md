@@ -14,12 +14,17 @@ feeding that AOE interface — by file or live over a serial port — with no
 manual entry. SPORTSYSTEMS' other products are **Entry Manager** and
 **Club Ranking**.
 
-> TL;DR — You have three options, in increasing order of "hands-off" and of
-> setup effort: (1) **import a `.do4` file per heat** (works today), (2)
-> **folder-watch auto-import**, (3) **live serial feed** where we emulate a
-> Colorado/Dolphin timing console and Sport Systems shows times as each heat
-> finishes. All three avoid manual entry. Pick based on how much one-time setup
-> you want to do.
+> **Decision (chosen route): write one Colorado Dolphin `.do3` file per heat into
+> the folder SPORTSYSTEMS watches.** It's the easiest *and* most foolproof — no
+> serial port, no `com0com`, no protocol emulation, and we already generate
+> Dolphin files. Reverse-engineering the SPORTSYSTEMS binary confirmed it reads
+> **`.do3`** files from a configured directory by race number (the **CTS Dolphin**
+> capture). See [`SPORTSYSTEMS-AOE-NOTES.md`](SPORTSYSTEMS-AOE-NOTES.md) for the
+> evidence and the full list of timing systems considered.
+>
+> The live serial paths (Colorado/ARES/Omega/Quantum over a COM port) remain
+> documented below as a *future* option, but they're more setup and more to break,
+> so we are **not** building them now.
 
 ---
 
@@ -61,23 +66,30 @@ In Sport Systems you import that file and it matches on event/heat/lane.
 
 ---
 
-## Option 2 — Folder-watch auto-import
+## Option 2 — CTS Dolphin file capture ⭐ (the chosen route)
 
-If Sport Systems can be pointed at a folder and auto-import result files as they
-appear (the classic "Dolphin" file integration in meet software), then the
-server just drops each heat's `.do4` into that folder and Sport Systems picks it
-up — **no click per heat, no new code.**
+SPORTSYSTEMS has a built-in **CTS Dolphin** capture: it reads Colorado Dolphin
+**`.do3`** race files from a configured directory and matches them by **race
+number** — exactly the kind of file we already produce. We write one `.do3` per
+heat into that directory and SPORTSYSTEMS picks it up. **No serial, no com0com,
+no per-heat click, no new protocol.**
 
-- **Setup:** point Sport Systems at the server's export folder (or a shared
-  folder if the two machines differ).
+- **In SPORTSYSTEMS:** point its Dolphin data directory (`CTSDolphinPath`,
+  default `C:\CTSDolphin`) at the folder our server writes to. It supports
+  **1 / 2 / 3 timers** ("Colorado Time System Dolphin - 2/3 Timers"), matching
+  our 1–3 buttons per lane.
+- **In our server:** write the heat's result as `.do3` into that folder using the
+  Dolphin **race-number filename** SPORTSYSTEMS expects.
 - **Per heat:** nothing — fully automatic.
-- **Caveat:** the export folder must be reachable by the Windows machine running
-  Sport Systems (a local path if the server runs on Windows, or a network share
-  otherwise).
+- **Caveat:** the folder must be reachable by the Windows machine running
+  SPORTSYSTEMS (a local path if the server runs on Windows, or a network share /
+  synced folder otherwise).
 
-> Whether Sport Systems supports folder-watch (vs. a manual file picker) is being
-> confirmed; if it does, this is the **best effort-to-benefit ratio** — set it
-> once, never touch it again.
+> Confirmed by reverse-engineering the SPORTSYSTEMS binary — see
+> [`SPORTSYSTEMS-AOE-NOTES.md`](SPORTSYSTEMS-AOE-NOTES.md). Note it reads **`.do3`**
+> (not `.do4`); commit #9 already added `.do3` auto-export. Remaining to confirm:
+> the exact Dolphin race-number **filename convention** and `.do3` column layout
+> so our files are found and parsed cleanly.
 
 ---
 
@@ -202,8 +214,12 @@ step — we do **not** build a direct Lenex exporter.
 
 ## Current status & next steps
 
-- ✅ `.do4` per-heat file export (Option 1) — working.
-- ⬜ Confirm Sport Systems folder-watch support (Option 2).
-- ⬜ Capture the exact Colorado/Dolphin **serial** byte format + baud, then build
-  the console emitter (Option 3) — as a dashboard Web Serial button (3A) and/or a
-  server-side COM writer (3B).
+**Chosen route: Option 2 — one `.do3` per heat into the CTS Dolphin folder.**
+
+- ✅ Per-heat Dolphin file export exists (`.do4` and, since commit #9, `.do3`).
+- ✅ Confirmed (via binary analysis) SPORTSYSTEMS reads `.do3` from
+  `CTSDolphinPath` by race number — Option 2 is viable with no serial work.
+- ⬜ Match the exact Dolphin **race-number filename** SPORTSYSTEMS looks for, and
+  write into `CTSDolphinPath`.
+- ⬜ Verify the `.do3` **column layout** (lane/time/Lap/2–3 timers) parses cleanly.
+- ⬜ *(Deferred, not building now)* the live serial console feed (Option 3).
