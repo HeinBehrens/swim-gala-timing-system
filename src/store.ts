@@ -24,6 +24,7 @@ export interface LaneRow {
   time: number | null;     // seconds, or null = no time (NT)
   place: number | null;    // finishing place among lanes with a time
   finished: boolean;
+  splits?: number[];       // consolidated cumulative split times (last = finish); omitted if none
 }
 
 export interface RaceMeta {
@@ -76,10 +77,25 @@ export function saveRace(meta: RaceMeta, lanes: LaneRow[]): number {
     datasetNum: meta.datasetNum,
     startedAt: meta.startedAt,
     completedAt: meta.completedAt,
-    lanes: lanes.map((l) => ({ lane: l.lane, time: l.time, place: l.place, finished: !!l.finished })),
+    lanes: lanes.map((l) => ({
+      lane: l.lane, time: l.time, place: l.place, finished: !!l.finished,
+      ...(l.splits && l.splits.length > 1 ? { splits: l.splits } : {}),
+    })),
   });
   persist();
   return id;
+}
+
+/** Overwrite a saved race's lane results (used when editing a finalised heat). */
+export function updateRace(id: number, lanes: LaneRow[]): boolean {
+  const r = store.races.find((x) => x.id === id);
+  if (!r) return false;
+  r.lanes = lanes.map((l) => ({
+    lane: l.lane, time: l.time, place: l.place, finished: !!l.finished,
+    ...(l.splits && l.splits.length > 1 ? { splits: l.splits } : {}),
+  }));
+  persist();
+  return true;
 }
 
 /** Most-recent races first, capped at `limit`. */

@@ -10,6 +10,8 @@ class SwimTimerApp {
     this.elapsed = 0;
     this.laneTimes = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
     this.laneFinished = { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false };
+    this.laneSplits = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] }; // cumulative split times per lane
+    this.laneSwimmers = {}; // lane -> display name (for the results table)
     this.batteries = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
     this.clockRAF = null;
     this.audioCtx = null;
@@ -88,15 +90,36 @@ class SwimTimerApp {
     document.querySelectorAll('.btn-sim-lane').forEach(btn => {
       btn.addEventListener('click', () => {
         const lane = parseInt(btn.dataset.simLane, 10);
-        this.sendAction('simulate_lane', { lane });
+        // One tap = one wall touch, fired by N "buttons" (watches). The server groups
+        // presses inside its split window into a single touch and consolidates them.
+        const watches = parseInt(document.getElementById('sim-watches')?.value || '1', 10);
+        for (let i = 0; i < watches; i++) this.sendAction('simulate_lane', { lane });
       });
     });
 
-    // Meet import (Lenex) — friendly drag-drop + browse picker (Settings) and the
-    // top toolbar Import button (quick browse).
-    this.setupMeetImport();
-    const btnImport = document.getElementById('btn-import');
-    if (btnImport) btnImport.addEventListener('click', () => this.pickAndImportMeet());
+    // Timing & Splits settings: pool length + per-length splits toggle (saved server-side).
+    const poolLen = document.getElementById('pool-length');
+    if (poolLen) poolLen.addEventListener('change', () =>
+      this.sendAction('set_config', { key: 'pool_length_m', value: String(poolLen.value || '25') }));
+    const collectSplits = document.getElementById('collect-splits');
+    if (collectSplits) collectSplits.addEventListener('change', () =>
+      this.sendAction('set_config', { key: 'collect_splits', value: collectSplits.checked ? '1' : '0' }));
+    const reviewToggle = document.getElementById('review-before-export');
+    if (reviewToggle) reviewToggle.addEventListener('change', () =>
+      this.sendAction('set_config', { key: 'review_before_export', value: reviewToggle.checked ? '1' : '0' }));
+    // Name-display checkboxes → set_config (any combination).
+    for (const [id, key] of [['name-show-first', 'name_show_first'], ['name-show-last-initial', 'name_show_last_initial'], ['name-show-age', 'name_show_age']]) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => this.sendAction('set_config', { key, value: el.checked ? '1' : '0' }));
+    }
+
+    // Review table: confirm writes the .do3 and ends the hold.
+    const btnConfirm = document.getElementById('btn-confirm-export');
+    if (btnConfirm) btnConfirm.addEventListener('click', () => this.sendAction('confirm_export', {}));
+
+    // Roster: import a start list (Sport Systems .txt / Lenex) + reload.
+    this.setupRosterReload();
+    this.setupStartListImport();
 
     // Configure ESP32 Wi-Fi over Bluetooth (Web Bluetooth)
     if (this.els.btnWifiProv) {
@@ -114,12 +137,18 @@ class SwimTimerApp {
           this.sendAction('cancel_enroll', {});
           return;
         }
+        const n = parseInt(document.getElementById('buttons-per-lane')?.value || '1', 10);
+        const per = n > 1 ? ` ${n} buttons per lane (Lane 1 A→${n === 3 ? 'C' : 'B'}, Lane 2 A→…)` : ' each lane';
         const ok = window.confirm(
-          'Re-enroll all buttons?\n\nThis clears the current lane mapping. You will press each button in order: Lane 1 → … → Lane 6 → Starter.'
+          `Re-enroll all buttons?\n\nThis clears the current lane mapping. You will press${per}, then the Starter.`
         );
-        if (ok) this.sendAction('start_enroll', {});
+        if (ok) this.sendAction('start_enroll', { buttons_per_lane: n });
       });
     }
+
+    // Test beep — fire the start signal so the operator can check the speaker.
+    const btnTestBeep = document.getElementById('btn-test-beep');
+    if (btnTestBeep) btnTestBeep.addEventListener('click', () => this.sendAction('test_beep', {}));
 
     // Restart ESP32 gateway — confirm first (it briefly drops the link).
     if (this.els.btnRestartEsp) {
@@ -149,6 +178,9 @@ class SwimTimerApp {
         this.sendAction('set_config', { key: 'mac_starter', value: starterMac.value.trim() });
       });
     }
+
+    // Optional 2nd/3rd button MAC inputs per lane (shown when Buttons-per-lane > 1).
+    this.setupExtraButtonInputs();
 
 
     // Ripple effect on all buttons
@@ -330,7 +362,7 @@ class SwimTimerApp {
         break;
 
       case 'lane_time':
-        this.handleLaneTime(data.lane, data.time, data.is_finish);
+        this.handleLaneTime(data.lane, data.time, data.is_finish, data.split_index);
         break;
 
       case 'connection_status':
@@ -383,7 +415,9 @@ class SwimTimerApp {
         break;
       case 'assigned':
         if (data.role && data.role.startsWith('lane')) {
-          const input = document.getElementById(`mac-lane-${data.role.replace('lane', '')}`);
+          const m = /^lane(\d)([bc])?$/.exec(data.role);
+          const id = m ? `mac-lane-${m[1]}${m[2] ? '-' + m[2] : ''}` : null;
+          const input = id && document.getElementById(id);
           if (input) input.value = data.mac;
         } else if (data.role === 'start') {
           const el = document.getElementById('mac-starter');
@@ -531,6 +565,17 @@ class SwimTimerApp {
   }
 
   hydrateFullState(data) {
+    // Keep a finished heat on screen until the NEXT heat is prepared. Clear lane
+    // times / places / results only when a new heat is armed ('ready') or the
+    // event/heat changes (e.g. Reset auto-advances) — never on completion or idle.
+    const heatKey = `${data.event}-${data.heat}`;
+    if (data.state === 'ready' || (this._shownHeat != null && heatKey !== this._shownHeat)) {
+      this.resetLaneCards();
+      if (this.els.resultsPanel) this.els.resultsPanel.classList.add('hidden');
+      this.els.masterTimer.textContent = '00:00.00';
+    }
+    this._shownHeat = heatKey;
+
     // Set event/heat
     if (data.event != null) this.els.eventInput.value = data.event;
     if (data.heat != null) this.els.heatInput.value = data.heat;
@@ -546,7 +591,10 @@ class SwimTimerApp {
     if (data.lanes) {
       for (const [lane, info] of Object.entries(data.lanes)) {
         const laneNum = parseInt(lane, 10);
-        this.setLaneSwimmer(laneNum, info.name || '', info.club || '');
+        this.laneSwimmers[laneNum] = info.name || '';
+        this.setLaneSwimmer(laneNum, info.name || '', info.club || '', info.seed || '');
+        this.laneSplits[laneNum] = Array.isArray(info.splits) ? info.splits.slice() : [];
+        this.renderLaneSplits(laneNum);
         if (info.time != null) {
           this.laneTimes[laneNum] = info.time;
           this.laneFinished[laneNum] = !!info.finished;
@@ -557,6 +605,9 @@ class SwimTimerApp {
         }
       }
     }
+
+    // Review-before-export: show the editable table while a finished heat is held.
+    this.renderReviewPanel(data.review_pending, data.lanes);
 
     // Connection statuses
     if (data.ble != null || data.wifi != null) {
@@ -569,19 +620,160 @@ class SwimTimerApp {
     }
   }
 
+  // Append optional B/C MAC inputs to each lane's settings field. They share no
+  // class with the primary .mac-input (so the primary handler ignores them) and
+  // stay hidden until Buttons-per-lane is raised.
+  setupExtraButtonInputs() {
+    for (let i = 1; i <= 6; i++) {
+      const field = document.querySelector(`.settings-field[data-lane-cfg="${i}"]`);
+      if (!field) continue;
+      for (const suffix of ['b', 'c']) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'text-input mac-extra';
+        input.id = `mac-lane-${i}-${suffix}`;
+        input.placeholder = `Lane ${i} · button ${suffix.toUpperCase()} (optional)`;
+        input.dataset.btn = suffix;
+        input.style.display = 'none';
+        input.addEventListener('change', () =>
+          this.sendAction('set_config', { key: `mac_lane_${i}_${suffix}`, value: input.value.trim() }));
+        field.appendChild(input);
+      }
+    }
+    const bpl = document.getElementById('buttons-per-lane');
+    if (bpl) bpl.addEventListener('change', () => this.updateExtraButtonVisibility());
+  }
+
+  // Editable review table, shown while a finished heat is held before export.
+  renderReviewPanel(reviewPending, lanes) {
+    const panel = document.getElementById('review-panel');
+    if (!panel) return;
+    if (!reviewPending || !lanes) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    const resultsPanel = document.getElementById('results-panel');
+    if (resultsPanel) resultsPanel.classList.add('hidden'); // show the editable table instead
+    const tbody = document.getElementById('review-tbody');
+    if (!tbody) return;
+    // Preserve focus if the operator is mid-edit (a broadcast could re-render under them).
+    const act = document.activeElement;
+    const editingLane = act && act.classList && act.classList.contains('review-time') ? act.dataset.lane : null;
+    tbody.replaceChildren();
+    const rows = Object.entries(lanes).map(([l, info]) => [parseInt(l, 10), info]).sort((a, b) => a[0] - b[0]);
+    for (const [lane, info] of rows) {
+      const tr = document.createElement('tr');
+      const tdLane = document.createElement('td'); tdLane.textContent = String(lane);
+      const tdName = document.createElement('td');
+      if (info.name) tdName.textContent = info.name; else { tdName.innerHTML = '<span class="muted">—</span>'; }
+      const tdTime = document.createElement('td');
+      const input = document.createElement('input');
+      input.className = 'review-time text-input';
+      input.dataset.lane = String(lane);
+      const shown = info.time != null ? this.formatTime(info.time) : '';
+      input.value = shown;
+      input.dataset.orig = shown;            // last valid value, for revert
+      input.placeholder = '00:00.00';
+      input.inputMode = 'numeric';
+      input.setAttribute('aria-label', `Lane ${lane} time`);
+      input.addEventListener('focus', () => input.select());
+      // Auto-format digits into a time as you type (calculator style — newest digit
+      // is hundredths; digits fill leftward into seconds : minutes : hours).
+      input.addEventListener('input', () => {
+        input.value = this.maskRaceTime(input.value);
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
+      // Commit only a valid time / NT / blank; otherwise revert + warn.
+      input.addEventListener('change', () => {
+        const v = input.value.trim();
+        if (this.isValidRaceTime(v)) {
+          input.classList.remove('invalid');
+          input.dataset.orig = v;
+          this.sendAction('set_lane_result', { lane, time: v });
+        } else {
+          input.classList.add('invalid');
+          input.value = input.dataset.orig || '';
+          this.showToast('Time must look like 32.10 or 1:05.30 (or NT)', 'error');
+          setTimeout(() => input.classList.remove('invalid'), 1600);
+        }
+      });
+      tdTime.appendChild(input);
+      const tdNt = document.createElement('td');
+      const ntBtn = document.createElement('button');
+      ntBtn.className = 'btn btn-small review-nt';
+      ntBtn.textContent = 'NT';
+      ntBtn.addEventListener('click', () => this.sendAction('set_lane_result', { lane, time: 'NT' }));
+      tdNt.appendChild(ntBtn);
+      tr.append(tdLane, tdName, tdTime, tdNt);
+      tbody.appendChild(tr);
+    }
+    if (editingLane) { const el = tbody.querySelector(`.review-time[data-lane="${editingLane}"]`); if (el) el.focus(); }
+  }
+
+  // Format raw keystrokes into a time as the user types (calculator style): the
+  // newest digit is hundredths; digits fill leftward into ss, then :mm, then :hh.
+  // "" → ""  ·  "5" → "0.05"  ·  "3210" → "32.10"  ·  "10530" → "1:05.30"  ·  8 digits → "00:00:00.00"
+  maskRaceTime(raw) {
+    const d = String(raw).replace(/\D/g, '').slice(0, 8);
+    if (!d) return '';
+    if (d.length <= 2) return '0.' + d.padStart(2, '0');
+    const hund = d.slice(-2);
+    let rest = d.slice(0, -2);
+    const groups = [];
+    while (rest.length > 2) { groups.unshift(rest.slice(-2)); rest = rest.slice(0, -2); }
+    groups.unshift(rest);
+    return groups.join(':') + '.' + hund;
+  }
+
+  // A valid edited race time: blank/NT (no time), or seconds / minutes / hours form.
+  isValidRaceTime(s) {
+    s = String(s).trim();
+    if (s === '' || /^nt$/i.test(s)) return true;
+    return /^\d{1,2}(\.\d{1,2})?$/.test(s)                  // ss(.hh):      00.00 / 32.10
+        || /^\d{1,2}:[0-5]\d(\.\d{1,2})?$/.test(s)          // m:ss(.hh):    0:00.00 / 00:32.10
+        || /^\d{1,2}:[0-5]\d:[0-5]\d(\.\d{1,2})?$/.test(s); // h:mm:ss(.hh): 00:00:00.00
+  }
+
+  updateExtraButtonVisibility() {
+    const n = parseInt(document.getElementById('buttons-per-lane')?.value || '1', 10);
+    document.querySelectorAll('.mac-extra').forEach((inp) => {
+      const show = (inp.dataset.btn === 'b' && n >= 2) || (inp.dataset.btn === 'c' && n >= 3);
+      inp.style.display = show ? '' : 'none';
+    });
+  }
+
   hydrateConfig(config) {
     if (!config) return;
     for (let i = 1; i <= 6; i++) {
-      const key = `mac_lane_${i}`;
-      if (config[key]) {
-        const input = document.getElementById(`mac-lane-${i}`);
-        if (input) input.value = config[key];
+      const primary = document.getElementById(`mac-lane-${i}`);
+      if (primary && config[`mac_lane_${i}`]) primary.value = config[`mac_lane_${i}`];
+      for (const suffix of ['b', 'c']) {
+        const el = document.getElementById(`mac-lane-${i}-${suffix}`);
+        if (el) el.value = config[`mac_lane_${i}_${suffix}`] || '';
       }
     }
     if (config.mac_starter) {
       const el = document.getElementById('mac-starter');
       if (el) el.value = config.mac_starter;
     }
+    // Timing & Splits controls.
+    const pool = document.getElementById('pool-length');
+    if (pool && config.pool_length_m) pool.value = config.pool_length_m;
+    const cs = document.getElementById('collect-splits');
+    if (cs) cs.checked = config.collect_splits === '1';
+    const rb = document.getElementById('review-before-export');
+    if (rb) rb.checked = (config.review_before_export ?? '1') === '1';
+    for (const [id, key, dflt] of [['name-show-first', 'name_show_first', '1'], ['name-show-last-initial', 'name_show_last_initial', '1'], ['name-show-age', 'name_show_age', '0']]) {
+      const el = document.getElementById(id);
+      if (el) el.checked = (config[key] ?? dflt) === '1';
+    }
+    // Buttons-per-lane is derived from which extra buttons are configured.
+    let bpl = 1;
+    for (let i = 1; i <= 6; i++) {
+      if (config[`mac_lane_${i}_c`]) bpl = Math.max(bpl, 3);
+      else if (config[`mac_lane_${i}_b`]) bpl = Math.max(bpl, 2);
+    }
+    const bplSel = document.getElementById('buttons-per-lane');
+    if (bplSel) bplSel.value = String(bpl);
+    this.updateExtraButtonVisibility();
   }
 
   /* ── Race State ── */
@@ -641,11 +833,8 @@ class SwimTimerApp {
     // Once finished, float the results up above the lane grid (flex order).
     if (this.els.dashboard) this.els.dashboard.classList.toggle('race-complete', state === 'completed');
 
-    if (state === 'idle') {
-      this.els.masterTimer.textContent = '00:00.00';
-      this.resetLaneCards();
-      this.els.resultsPanel.classList.add('hidden');
-    }
+    // NB: results are NOT cleared on idle/completion — they stay on screen until the
+    // next heat is PREPARED. The clear happens in hydrateFullState (on 'ready' / new heat).
 
     this.updateButtonStates();
   }
@@ -686,7 +875,7 @@ class SwimTimerApp {
   }
 
   exportResults() {
-    // The .do3 is the file Sport Systems imports (single finish touch = no splits).
+    // Sport Systems' CTS Dolphin capture reads the Colorado .do3 (finish times).
     this.sendAction('export_do3', {});
   }
 
@@ -775,21 +964,50 @@ class SwimTimerApp {
     }
   }
 
-  handleLaneTime(lane, time, isFinish) {
+  handleLaneTime(lane, time, isFinish, splitIndex) {
+    // Record the touch at its split slot (a 2nd/3rd watch of the same touch just
+    // overwrites with the consolidated value the server re-sends).
+    if (splitIndex != null) {
+      if (!this.laneSplits[lane]) this.laneSplits[lane] = [];
+      this.laneSplits[lane][splitIndex] = time;
+    }
+    this.laneTimes[lane] = time;
     if (isFinish) {
-      this.laneTimes[lane] = time;
       this.laneFinished[lane] = true;
       this.updateLaneCard(lane, time, true);
       this.playFinishChime(lane);
     } else {
-      this.laneTimes[lane] = time;
       this.updateLaneCard(lane, time, false);
     }
+    this.renderLaneSplits(lane);
+  }
+
+  // Show the per-length split times under a lane's timer (only when >1 split). The
+  // element is created on demand, like the swimmer label.
+  renderLaneSplits(lane) {
+    const card = this.getLaneCard(lane);
+    if (!card) return;
+    const splits = (this.laneSplits[lane] || []).filter((t) => t != null);
+    let el = card.querySelector('.lane-splits');
+    if (splits.length <= 1) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'lane-splits';
+      const timer = card.querySelector('.lane-timer');
+      if (timer) timer.insertAdjacentElement('afterend', el);
+      else card.appendChild(el);
+    }
+    el.innerHTML = splits
+      .map((t, i) => {
+        const last = i === splits.length - 1;
+        return `<span class="split-chip${last ? ' split-finish' : ''}">${i + 1}: ${this.formatTime(t)}</span>`;
+      })
+      .join('');
   }
 
   // Show the swimmer's name (and club) on a lane card. The element is created on
   // demand so we don't have to hand-edit all six lane cards in the HTML.
-  setLaneSwimmer(lane, name, club) {
+  setLaneSwimmer(lane, name, club, seed) {
     const card = this.getLaneCard(lane);
     if (!card) return;
     let el = card.querySelector('.lane-swimmer');
@@ -803,7 +1021,8 @@ class SwimTimerApp {
     if (name) {
       el.innerHTML = `<span class="swimmer-name"></span><span class="swimmer-club"></span>`;
       el.querySelector('.swimmer-name').textContent = name;
-      el.querySelector('.swimmer-club').textContent = club || '';
+      const meta = [club, seed ? `seed ${seed}` : ''].filter(Boolean).join(' · ');
+      el.querySelector('.swimmer-club').textContent = meta;
       el.classList.remove('empty');
     } else {
       el.textContent = '';
@@ -827,71 +1046,39 @@ class SwimTimerApp {
   }
 
   // Meet import: drag-drop / browse a Lenex file, upload it, show the result.
-  setupMeetImport() {
-    const drop = document.getElementById('import-drop');
-    const input = document.getElementById('import-file');
-    const nameEl = document.getElementById('import-file-name');
-    const importBtn = document.getElementById('btn-import-meet');
+  setupRosterReload() {
     const reloadBtn = document.getElementById('btn-reload-roster');
-    const statusEl = document.getElementById('import-status');
-    if (!drop || !input || !importBtn) return;
-    let chosen = null;
-
-    const setFile = (file) => {
-      chosen = file || null;
-      nameEl.textContent = chosen ? chosen.name : 'Drop a .lef / .lxf file here';
-      drop.classList.toggle('has-file', !!chosen);
-      importBtn.disabled = !chosen;
-      if (statusEl) statusEl.textContent = '';
-    };
-
-    drop.addEventListener('click', () => input.click());
-    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
-    input.addEventListener('change', () => setFile(input.files[0]));
-    ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('dragover'); }));
-    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('dragover'); }));
-    drop.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]); });
-
-    importBtn.addEventListener('click', async () => {
-      if (!chosen) return;
-      importBtn.disabled = true;
-      await this.uploadMeetFile(chosen, statusEl);
-      importBtn.disabled = !chosen;
-    });
-
     if (reloadBtn) reloadBtn.addEventListener('click', () => this.sendAction('reload_roster', {}));
   }
 
-  // Toolbar "Import" button — open a file chooser and import immediately.
-  pickAndImportMeet() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.lef,.lxf,.xml';
-    input.addEventListener('change', () => {
-      if (input.files && input.files[0]) this.uploadMeetFile(input.files[0], null);
+  // Import a start list (Sport Systems heat-sheet .txt or Lenex .lef/.lxf) by POSTing
+  // the file to /api/import; the server writes roster.csv/events.csv and broadcasts.
+  setupStartListImport() {
+    const input = document.getElementById('startlist-file');
+    const btn = document.getElementById('btn-import-startlist');
+    const statusEl = document.getElementById('import-status');
+    if (!input || !btn) return;
+    btn.addEventListener('click', () => input.click());
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (statusEl) { statusEl.className = 'import-status'; statusEl.textContent = `Importing ${file.name}…`; }
+      try {
+        const buf = await file.arrayBuffer();
+        const res = await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
+        const s = data.summary;
+        const msg = `${s.entries} swimmers · ${s.eventCount} events · ${s.heatCount} heats`;
+        if (statusEl) { statusEl.className = 'import-status ok'; statusEl.textContent = '✓ ' + msg; }
+        this.showToast('Imported ' + msg, 'success');
+      } catch (err) {
+        if (statusEl) { statusEl.className = 'import-status err'; statusEl.textContent = '✗ ' + err.message; }
+        this.showToast('Import failed: ' + err.message, 'error');
+      } finally {
+        input.value = '';
+      }
     });
-    input.click();
-  }
-
-  // POST a Lenex file to /api/import; report via the settings status line (if
-  // given) and always via a toast so it works from the toolbar too.
-  async uploadMeetFile(file, statusEl) {
-    if (statusEl) { statusEl.className = 'import-status'; statusEl.textContent = 'Importing…'; }
-    try {
-      const buf = await file.arrayBuffer();
-      const res = await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
-      const s = data.summary;
-      const msg = `${s.entries} swimmers · ${s.eventCount} events · ${s.heatCount} heats`;
-      if (statusEl) { statusEl.className = 'import-status ok'; statusEl.textContent = '✓ ' + msg; }
-      this.showToast('Imported ' + msg, 'success');
-      return true;
-    } catch (err) {
-      if (statusEl) { statusEl.className = 'import-status err'; statusEl.textContent = '✗ ' + err.message; }
-      this.showToast('Import failed: ' + err.message, 'error');
-      return false;
-    }
   }
 
   updateLaneCard(lane, time, isFinish) {
@@ -967,11 +1154,14 @@ class SwimTimerApp {
     for (let i = 1; i <= 6; i++) {
       this.laneTimes[i] = null;
       this.laneFinished[i] = false;
+      this.laneSplits[i] = [];
       this.setLaneStatus(i, 'waiting');
       const timerEl = this.getLaneTimerEl(i);
       if (timerEl) timerEl.textContent = '--:--.--';
       const card = this.getLaneCard(i);
       if (card) {
+        const splitsEl = card.querySelector('.lane-splits');
+        if (splitsEl) splitsEl.remove();
         const badge = card.querySelector('.lane-place-badge');
         if (badge) {
           badge.classList.add('hidden');
@@ -1015,6 +1205,10 @@ class SwimTimerApp {
       laneTd.textContent = entry.lane;
       tr.appendChild(laneTd);
 
+      const nameTd = document.createElement('td');
+      nameTd.textContent = this.laneSwimmers[entry.lane] || '';
+      tr.appendChild(nameTd);
+
       const timeTd = document.createElement('td');
       timeTd.textContent = this.formatTime(entry.time);
       tr.appendChild(timeTd);
@@ -1040,6 +1234,10 @@ class SwimTimerApp {
         const laneTd = document.createElement('td');
         laneTd.textContent = i;
         tr.appendChild(laneTd);
+
+        const nameTd = document.createElement('td');
+        nameTd.textContent = this.laneSwimmers[i] || '';
+        tr.appendChild(nameTd);
 
         const timeTd = document.createElement('td');
         timeTd.textContent = 'NT';

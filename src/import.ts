@@ -127,8 +127,23 @@ function sexLetter(g: string): string {
   return "X";
 }
 
-interface RosterRow { event: number; heat: number; lane: number; name: string; age: number | ""; sex: string; club: string; }
+interface RosterRow { event: number; heat: number; lane: number; name: string; age: number | ""; sex: string; club: string; seed: string; }
 interface EventRow { event: number; name: string; stroke: string; distance: string; sex: string; agegroup: string; }
+
+// Normalise a seed/entry time to a tidy display string ("1:07.79", "50.71"), or ""
+// for blank/NT. Handles Lenex "HH:MM:SS.ss" and Sport Systems "m:ss.hh" / "ss.hh".
+function normalizeSeed(s: string): string {
+  s = (s || "").trim();
+  if (!s || /^(nt|0|00:00(\.0+)?|00:00:00(\.0+)?)$/i.test(s)) return "";
+  const m = /^(\d{1,2}):(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(s); // HH:MM:SS.ss (Lenex)
+  if (m) {
+    const h = +m[1]!, mm = +m[2]!, ss = m[3]!;
+    if (h > 0) return `${h}:${String(mm).padStart(2, "0")}:${ss}`;
+    if (mm > 0) return `${mm}:${ss}`;
+    return ss;
+  }
+  return s; // already "m:ss.hh" or "ss.hh"
+}
 
 function ageFrom(birth: string, meetDate: string): number | "" {
   // birth may be "YYYY-MM-DD" or "YYYY". Swimming age is commonly year-based.
@@ -189,7 +204,7 @@ function lenexToRows(root: XmlNode): { roster: RosterRow[]; events: EventRow[] }
         const event = byHeat?.event ?? eventNumById.get(entry.attrs.eventid || "") ?? 0;
         const heat = byHeat?.heat ?? parseInt(entry.attrs.heat || "0", 10);
         if (!event || !heat) continue;
-        roster.push({ event, heat, lane, name, age, sex, club });
+        roster.push({ event, heat, lane, name, age, sex, club, seed: normalizeSeed(entry.attrs.entrytime || "") });
       }
     }
   }
@@ -227,7 +242,7 @@ export function importLenexBuffer(buf: Buffer): ImportResult {
   const { roster, events } = lenexToRows(root);
   return {
     eventsCsv: toCsv(["event", "name", "stroke", "distance", "sex", "agegroup"], events as unknown as Record<string, string | number>[]),
-    rosterCsv: toCsv(["event", "heat", "lane", "name", "age", "sex", "club"], roster as unknown as Record<string, string | number>[]),
+    rosterCsv: toCsv(["event", "heat", "lane", "name", "age", "sex", "club", "seed"], roster as unknown as Record<string, string | number>[]),
     summary: {
       events: events.length,
       entries: roster.length,
@@ -237,11 +252,90 @@ export function importLenexBuffer(buf: Buffer): ImportResult {
   };
 }
 
+// ── Sport Systems heat-sheet (.txt) → CSV rows ───────────────────────────────
+// Sport Systems exports a tab-delimited event/heat program, e.g.:
+//   Event 415 Mixed 50m Freestyle
+//   Heat Number - 1
+//   Lane<TAB>Comp.No.<TAB>Name<TAB>AaD<TAB><TAB>Club<TAB> Time
+//   2<TAB>(1)<TAB>Caitlin WELLARD<TAB>11<TAB><TAB>Ashford Town<TAB>        <TAB>
+// One "Event N …" section per event, "Heat Number - N" per heat, then lane rows.
+
+// Derive stroke/distance/sex from an event name like "Mixed 50m Freestyle".
+function parseEventName(name: string): { stroke: string; distance: string; sex: string; agegroup: string } {
+  const relay = /(\d+)\s*x\s*(\d+)/i.exec(name);
+  const dist = /(\d+)\s*m\b/i.exec(name) || /\b(\d{2,4})\b/.exec(name);
+  const distance = relay ? `${relay[1]}x${relay[2]}m` : (dist ? `${dist[1]}m` : "");
+  let stroke = "";
+  if (/butterfly|\bfly\b/i.test(name)) stroke = "Butterfly";
+  else if (/backstroke|\bback\b/i.test(name)) stroke = "Backstroke";
+  else if (/breaststroke|\bbreast\b/i.test(name)) stroke = "Breaststroke";
+  else if (/medley|\bim\b/i.test(name)) stroke = "Medley";
+  else if (/freestyle|\bfree\b/i.test(name)) stroke = "Freestyle";
+  let sex = "X";
+  if (/\bgirls?\b|\bwomen\b|\bfemale\b|\bladies\b/i.test(name)) sex = "F";
+  else if (/\bboys?\b|\bmen\b|\bmale\b/i.test(name)) sex = "M";
+  return { stroke, distance, sex, agegroup: "" };
+}
+
+function parseSportSystems(text: string): { roster: RosterRow[]; events: EventRow[] } {
+  const eventMeta = new Map<number, EventRow>();
+  const roster: RosterRow[] = [];
+  let curEvent = 0, curHeat = 0;
+  for (const raw of text.replace(/﻿/g, "").split(/\r?\n/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const evM = /^Event\s+(\d+)\s+(.+)$/i.exec(trimmed);
+    if (evM) {
+      curEvent = parseInt(evM[1]!, 10); curHeat = 0;
+      const name = evM[2]!.trim();
+      eventMeta.set(curEvent, { event: curEvent, name, ...parseEventName(name) });
+      continue;
+    }
+    const htM = /^Heat\s*Number\s*-?\s*(\d+)/i.exec(trimmed);
+    if (htM) { curHeat = parseInt(htM[1]!, 10); continue; }
+    if (/^Lane\b/i.test(trimmed)) continue; // column-header row
+    if (curEvent && curHeat) {
+      const cols = raw.split("\t");
+      const lane = parseInt((cols[0] || "").trim(), 10);
+      if (!lane) continue;                  // not a swimmer row
+      const name = (cols[2] || "").trim();
+      if (!name) continue;
+      const ageN = parseInt((cols[3] || "").trim(), 10);
+      roster.push({ event: curEvent, heat: curHeat, lane, name, age: Number.isFinite(ageN) ? ageN : "", sex: "", club: (cols[5] || "").trim(), seed: normalizeSeed(cols[6] || "") });
+    }
+  }
+  roster.sort((a, b) => a.event - b.event || a.heat - b.heat || a.lane - b.lane);
+  return { roster, events: [...eventMeta.values()].sort((a, b) => a.event - b.event) };
+}
+
+/** Parse a Sport Systems heat-sheet (.txt) into roster + events CSV text. */
+export function importSportSystemsText(text: string): ImportResult {
+  const { roster, events } = parseSportSystems(text);
+  if (events.length === 0) throw new Error("No 'Event N …' lines found — is this a Sport Systems heat sheet?");
+  return {
+    eventsCsv: toCsv(["event", "name", "stroke", "distance", "sex", "agegroup"], events as unknown as Record<string, string | number>[]),
+    rosterCsv: toCsv(["event", "heat", "lane", "name", "age", "sex", "club", "seed"], roster as unknown as Record<string, string | number>[]),
+    summary: {
+      events: events.length,
+      entries: roster.length,
+      eventCount: new Set(roster.map((r) => r.event)).size,
+      heatCount: new Set(roster.map((r) => `${r.event}-${r.heat}`)).size,
+    },
+  };
+}
+
+/** Import a start list — auto-detects Lenex (.lef/.lxf) vs Sport Systems text (.txt). */
+export function importStartListBuffer(buf: Buffer): ImportResult {
+  const head = buf.subarray(0, 64).toString("utf8").trimStart();
+  if (buf[0] === 0x50 /* 'PK' zip → .lxf */ || head.startsWith("<")) return importLenexBuffer(buf);
+  return importSportSystemsText(buf.toString("utf8"));
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 function main(): void {
   const input = process.argv[2];
   if (!input) {
-    console.error("Usage: npm run import -- <meet.lef|meet.lxf>");
+    console.error("Usage: npm run import -- <meet.lef|meet.lxf|sportsystems.txt>");
     process.exit(1);
   }
   const rosterOut = process.env.ROSTER || "roster.csv";
@@ -249,7 +343,7 @@ function main(): void {
 
   let result: ImportResult;
   try {
-    result = importLenexBuffer(readFileSync(input));
+    result = importStartListBuffer(readFileSync(input));
   } catch (e) {
     console.error(`✗ ${basename(input)}: ${(e as Error).message}`);
     process.exit(2);

@@ -98,10 +98,6 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           <span>Reset</span>
         </button>
-        <button class="btn btn-import" id="btn-import" title="Import meet file (Lenex .lef/.lxf)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <span>Import</span>
-        </button>
         <button class="btn btn-export" id="btn-export" title="Export results (.do3 for Sport Systems)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Export .do3</span>
@@ -213,6 +209,7 @@
             <tr>
               <th>Place</th>
               <th>Lane</th>
+              <th>Name</th>
               <th>Time</th>
               <th>Delta</th>
             </tr>
@@ -221,6 +218,24 @@
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Review & edit results before the .do3 is written (shown when review_pending) -->
+    <section id="review-panel" class="review-panel hidden">
+      <div class="results-header review-header">
+        <h2 class="section-title">Review results — edit a time or mark NT, then export</h2>
+        <button class="btn btn-confirm-export" id="btn-confirm-export">Confirm &amp; Export .do3</button>
+      </div>
+      <div class="results-table-wrap glass-card">
+        <table class="results-table review-table">
+          <thead>
+            <tr><th>Lane</th><th>Swimmer</th><th>Time (m:ss.hh)</th><th></th></tr>
+          </thead>
+          <tbody id="review-tbody"></tbody>
+        </table>
+      </div>
+      <p class="settings-hint review-hint">The Colorado <strong>.do3</strong> for Sport Systems is written only when you click
+        <strong>Confirm &amp; Export</strong>. Editing a time here collapses that lane to a single finish time.</p>
     </section>
   </main>
 
@@ -235,6 +250,48 @@
     </div>
 
     <div class="settings-body">
+      <div class="settings-section">
+        <h3 class="settings-section-title">Timing &amp; Splits</h3>
+        <div class="settings-field">
+          <label for="pool-length">Pool length (m)</label>
+          <input type="number" id="pool-length" class="text-input" min="10" max="50" step="1" value="25">
+        </div>
+        <label class="settings-toggle-row" for="collect-splits">
+          <input type="checkbox" id="collect-splits">
+          <span>Collect per-length splits (a touch every 2nd length)</span>
+        </label>
+        <label class="settings-toggle-row" for="review-before-export">
+          <input type="checkbox" id="review-before-export">
+          <span>Review &amp; edit results before exporting the .do3</span>
+        </label>
+        <div class="settings-field">
+          <label for="buttons-per-lane">Buttons per lane</label>
+          <select id="buttons-per-lane" class="text-input">
+            <option value="1">1 — default</option>
+            <option value="2">2 — optional backup</option>
+            <option value="3">3 — optional backup</option>
+          </select>
+        </div>
+        <p class="settings-hint">One button per lane is standard. Adding a 2nd/3rd is optional —
+          the extra timers' times are consolidated (median of 3, average of 2) per USA-Swimming
+          rules. Change this, then <strong>Re-enroll</strong> to register the extra buttons.</p>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Name display</h3>
+        <p class="settings-hint">How swimmer names show on the dashboard, spectator view and results
+          (tick any combination — e.g. first name + surname initial for a public screen).</p>
+        <label class="settings-toggle-row" for="name-show-first">
+          <input type="checkbox" id="name-show-first"><span>First name</span>
+        </label>
+        <label class="settings-toggle-row" for="name-show-last-initial">
+          <input type="checkbox" id="name-show-last-initial"><span>First letter of surname</span>
+        </label>
+        <label class="settings-toggle-row" for="name-show-age">
+          <input type="checkbox" id="name-show-age"><span>Age</span>
+        </label>
+      </div>
+
       <div class="settings-section">
         <h3 class="settings-section-title">Lane MAC Addresses</h3>
         <div class="settings-field" data-lane-cfg="1">
@@ -271,8 +328,11 @@
 
       <div class="settings-section">
         <h3 class="settings-section-title">Gateway (ESP32)</h3>
-        <p class="enroll-status">Reboot the ESP32 gateway over its USB serial link (firmware reloads; no data is lost).</p>
-        <button class="btn btn-danger" id="btn-restart-esp">Restart ESP32</button>
+        <p class="enroll-status">Fire the start signal (strobe + beep) to test the speaker, or reboot the gateway.</p>
+        <div class="settings-row">
+          <button class="btn btn-sim" id="btn-test-beep">Test beep</button>
+          <button class="btn btn-danger" id="btn-restart-esp">Restart ESP32</button>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -304,23 +364,12 @@
 
 
       <div class="settings-section">
-        <h3 class="settings-section-title">Meet / Roster</h3>
-        <p class="settings-hint">Import a Lenex meet file (.lef / .lxf) from your meet
-          software to load events, heats, lanes and swimmer names.</p>
-        <div class="file-drop" id="import-drop" tabindex="0" role="button"
-             aria-label="Choose or drop a Lenex file">
-          <input type="file" id="import-file" accept=".lef,.lxf,.xml" hidden>
-          <svg class="file-drop-icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <div class="file-drop-text">
-            <span class="file-drop-name" id="import-file-name">Drop a .lef / .lxf file here</span>
-            <span class="file-drop-hint">or click to browse</span>
-          </div>
-        </div>
+        <h3 class="settings-section-title">Roster</h3>
+        <p class="settings-hint">Import the seeded start list from Sport Systems — its
+          heat‑sheet <strong>.txt</strong> export (or a Lenex <strong>.lef/.lxf</strong>).</p>
+        <input type="file" id="startlist-file" accept=".txt,.lef,.lxf,.xml" hidden>
         <div class="settings-row">
-          <button class="btn btn-secondary" id="btn-import-meet" disabled>Import meet</button>
+          <button class="btn btn-sim" id="btn-import-startlist">Import start list</button>
           <button class="btn btn-secondary" id="btn-reload-roster">Reload roster</button>
         </div>
         <div class="import-status" id="import-status"></div>
@@ -328,6 +377,17 @@
 
       <div class="settings-section">
         <h3 class="settings-section-title">Simulation Controls</h3>
+        <div class="settings-field">
+          <label for="sim-watches">Watches per tap</label>
+          <select id="sim-watches" class="text-input">
+            <option value="1">1 button</option>
+            <option value="2">2 buttons</option>
+            <option value="3">3 buttons</option>
+          </select>
+        </div>
+        <p class="settings-hint">Each tap on a lane = one wall touch, fired by the selected number
+          of buttons. With splits on, tap again (after ~2&nbsp;s) for the next length — the last
+          length is the finish.</p>
         <div class="sim-controls">
           <button class="btn btn-sim btn-sim-start" id="btn-sim-start">Simulate Start</button>
           <div class="sim-lanes-grid">

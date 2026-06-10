@@ -156,66 +156,76 @@
     .race-info .state-badge.running { background: rgba(0, 217, 126, 0.15); color: var(--green); }
     .race-info .state-badge.completed { background: rgba(255, 179, 71, 0.15); color: var(--amber); }
 
-    /* ── Lane Grid (read-only tiles) ───────────────── */
-    .lane-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
+    /* ── Lanes (read-only) — stacked vertically, finish order with place ───── */
+    .lane-list {
       flex: 1;
       min-height: 0;
-    }
-    .lane-tile {
-      position: relative;
       display: flex;
       flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+    }
+    .lane-row {
+      display: grid;
+      grid-template-columns: 2.8em 2.2em 1fr auto;
       align-items: center;
-      justify-content: center;
-      gap: 4px;
+      column-gap: 18px;
       border: 2px solid var(--glass-border);
-      border-radius: 16px;
+      border-radius: 14px;
       background: var(--bg-card);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       color: var(--text);
-      overflow: hidden;
+      padding: 10px 18px;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
-    .lane-tile .lane-num {
-      font-size: clamp(2.5rem, 10vw, 4rem);
+    .lane-row .place {
+      font-size: clamp(1.3rem, 3.5vw, 1.9rem);
       font-weight: 800;
+      text-align: center;
+      color: var(--text-dim);
       line-height: 1;
-      opacity: 0.9;
     }
-    .lane-tile .lane-label {
-      font-size: 0.7rem;
-      font-weight: 400;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: var(--text-dim);
+    .lane-row.finished .place { color: var(--lane-color, var(--cyan)); }
+    /* Lane is a filled colored circle, clearly distinct from the position ordinal. */
+    .lane-row .lane-badge {
+      justify-self: center;
+      width: 1.9em;
+      height: 1.9em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      font-size: clamp(0.95rem, 2.6vw, 1.35rem);
+      font-weight: 800;
+      color: #0b1220;
+      background: var(--lane-color, #888);
     }
-    .lane-tile .lane-time {
+    .lane-row .swimmer { display: flex; flex-direction: column; min-width: 0; }
+    .lane-row .swimmer .nm {
+      font-weight: 700;
+      font-size: clamp(1rem, 3vw, 1.25rem);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lane-row .swimmer .sd { font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.5px; }
+    .lane-row .time {
       font-family: 'JetBrains Mono', 'Courier New', monospace;
-      font-size: 1rem;
-      font-weight: 600;
+      font-size: clamp(1.3rem, 4vw, 2rem);
+      font-weight: 700;
       color: var(--text-dim);
-      min-height: 1.2em;
+      text-align: right;
     }
 
     /* Lane-specific accent colors */
-    .lane-tile[data-lane="1"] { --lane-color: #ff6b6b; }
-    .lane-tile[data-lane="2"] { --lane-color: #00f0ff; }
-    .lane-tile[data-lane="3"] { --lane-color: #00d97e; }
-    .lane-tile[data-lane="4"] { --lane-color: #ffb347; }
-    .lane-tile[data-lane="5"] { --lane-color: #a78bfa; }
-    .lane-tile[data-lane="6"] { --lane-color: #f472b6; }
-    .lane-tile .lane-num { color: var(--lane-color); }
+    .lane-row[data-lane="1"] { --lane-color: #ff6b6b; }
+    .lane-row[data-lane="2"] { --lane-color: #00f0ff; }
+    .lane-row[data-lane="3"] { --lane-color: #00d97e; }
+    .lane-row[data-lane="4"] { --lane-color: #ffb347; }
+    .lane-row[data-lane="5"] { --lane-color: #a78bfa; }
+    .lane-row[data-lane="6"] { --lane-color: #f472b6; }
 
-    /* Finished flash */
-    .lane-tile.finished {
-      border-color: var(--lane-color);
-      box-shadow: 0 0 25px color-mix(in srgb, var(--lane-color) 30%, transparent);
-    }
-    .lane-tile.finished .lane-time { color: var(--lane-color); }
+    .lane-row.finished { border-color: var(--lane-color); box-shadow: 0 0 18px color-mix(in srgb, var(--lane-color) 25%, transparent); }
+    .lane-row.finished .time { color: var(--lane-color); }
   </style>
 </head>
 <body>
@@ -236,15 +246,8 @@
     <span class="timer" id="master-timer">00:00.00</span>
   </div>
 
-  <!-- Lane Grid (read-only) -->
-  <div class="lane-grid" id="lane-grid">
-    <div class="lane-tile" data-lane="1"><span class="lane-num">1</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-1"></span></div>
-    <div class="lane-tile" data-lane="2"><span class="lane-num">2</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-2"></span></div>
-    <div class="lane-tile" data-lane="3"><span class="lane-num">3</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-3"></span></div>
-    <div class="lane-tile" data-lane="4"><span class="lane-num">4</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-4"></span></div>
-    <div class="lane-tile" data-lane="5"><span class="lane-num">5</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-5"></span></div>
-    <div class="lane-tile" data-lane="6"><span class="lane-num">6</span><span class="lane-label">Lane</span><span class="lane-time" id="lane-time-6"></span></div>
-  </div>
+  <!-- Lanes (read-only) — stacked vertically, finish order with place -->
+  <div class="lane-list" id="lane-list"></div>
 
   <script>
     /* ================================================================
@@ -255,6 +258,7 @@
 
     let ws = null;
     let raceState = 'idle';
+    let shownHeat = null; // event-heat currently displayed (to keep results until next Prepare)
     let clockRAF = null;
     let reconnectDelay = 1000;
     const MAX_RECONNECT = 10000;
@@ -291,38 +295,32 @@
         case 'race_state':
           raceState = msg.state;
           updateStateBadge();
-          if (raceState === 'idle' || raceState === 'ready') resetLanes();
-          if (raceState === 'running') {
-            startClock(msg.elapsed || 0);
-          } else {
-            stopClock();
-            if (msg.elapsed != null) updateTimerDisplay(msg.elapsed);
-          }
+          if (raceState === 'running') startClock(msg.elapsed || 0);
+          else { stopClock(); if (msg.elapsed != null) updateTimerDisplay(msg.elapsed); }
           break;
 
         case 'lane_time':
           updateLaneTime(msg.lane, msg.time, msg.is_finish);
           break;
 
-        case 'full_state':
+        case 'full_state': {
           raceState = msg.state || 'idle';
           updateStateBadge();
-          resetLanes();
-          if (msg.lane_times) {
-            for (const [lane, times] of Object.entries(msg.lane_times)) {
-              if (times.length > 0) {
-                const lastTime = times[times.length - 1];
-                const finished = msg.lane_finished ? msg.lane_finished[lane] : false;
-                updateLaneTime(parseInt(lane), lastTime, finished);
-              }
+          // Keep the finished heat on screen until the next heat is PREPARED (ready)
+          // or the event/heat changes — not on completion/idle.
+          const heatKey = msg.event + '-' + msg.heat;
+          if (raceState === 'ready' || (shownHeat != null && heatKey !== shownHeat)) resetLanes();
+          shownHeat = heatKey;
+          if (msg.lanes) {
+            for (const [lane, info] of Object.entries(msg.lanes)) {
+              setLaneInfo(parseInt(lane), info.name || '', info.seed || '', info.time, info.finished);
             }
+            render();
           }
-          if (raceState === 'running') {
-            startClock(msg.elapsed || 0);
-          } else if (msg.elapsed != null) {
-            updateTimerDisplay(msg.elapsed);
-          }
+          if (raceState === 'running') startClock(msg.elapsed || 0);
+          else if (msg.elapsed != null) updateTimerDisplay(msg.elapsed);
           break;
+        }
 
         default:
           break;
@@ -347,23 +345,52 @@
       el.classList.toggle('running', raceState === 'running');
     }
 
+    // ── Lane model + sorted render (finish order, with place) ──────────────
+    const laneData = {};
+    for (let i = 1; i <= 6; i++) laneData[i] = { name: '', seed: '', time: null, finished: false };
+
+    function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+
     function updateLaneTime(lane, time, isFinish) {
-      const el = document.getElementById(`lane-time-${lane}`);
-      if (!el) return;
-      el.textContent = formatTime(time);
-      if (isFinish) {
-        const tile = el.closest('.lane-tile');
-        if (tile) tile.classList.add('finished');
-      }
+      const d = laneData[lane]; if (!d) return;
+      d.time = time;
+      if (isFinish) d.finished = true;
+      render();
+    }
+    // Set a lane's swimmer info from full_state (render is called once after the loop).
+    function setLaneInfo(lane, name, seed, time, finished) {
+      const d = laneData[lane]; if (!d) return;
+      d.name = name || ''; d.seed = seed || '';
+      if (time != null) d.time = time;          // keep any live time if full_state has none
+      if (finished) d.finished = true;
+    }
+    function resetLanes() {
+      for (let i = 1; i <= 6; i++) laneData[i] = { name: '', seed: '', time: null, finished: false };
+      render();
     }
 
-    function resetLanes() {
-      for (let i = 1; i <= 6; i++) {
-        const t = document.getElementById('lane-time-' + i);
-        if (t) t.textContent = '';
-        const tile = document.querySelector(`.lane-tile[data-lane="${i}"]`);
-        if (tile) tile.classList.remove('finished');
-      }
+    // Render the six lanes stacked vertically: finished lanes first (by time, with
+    // place), then the rest in lane order.
+    function render() {
+      const list = document.getElementById('lane-list');
+      if (!list) return;
+      const lanes = [];
+      for (let i = 1; i <= 6; i++) lanes.push(Object.assign({ lane: i }, laneData[i]));
+      const finished = lanes.filter(function (l) { return l.time != null; }).sort(function (a, b) { return a.time - b.time; });
+      const pending = lanes.filter(function (l) { return l.time == null; }).sort(function (a, b) { return a.lane - b.lane; });
+      let html = '';
+      finished.concat(pending).forEach(function (l, idx) {
+        const isFin = l.time != null;
+        const nm = l.name ? esc(l.name) : ('Lane ' + l.lane);
+        const sd = l.seed ? ('seed ' + esc(l.seed)) : '';
+        html += '<div class="lane-row' + (isFin ? ' finished' : '') + '" data-lane="' + l.lane + '">'
+          + '<span class="place">' + (isFin ? (idx + 1) : '') + '</span>'
+          + '<span class="lane-badge">' + l.lane + '</span>'
+          + '<span class="swimmer"><span class="nm">' + nm + '</span><span class="sd">' + sd + '</span></span>'
+          + '<span class="time">' + (isFin ? formatTime(l.time) : '') + '</span></div>';
+      });
+      list.innerHTML = html;
     }
 
     // ── Clock ───────────────────────────────────────
@@ -399,6 +426,7 @@
 
     // ── Init ────────────────────────────────────────
     updateStateBadge();
+    render();
     connectWS();
   </script>
 </body>

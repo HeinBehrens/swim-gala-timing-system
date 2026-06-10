@@ -1,9 +1,11 @@
 # Swim Gala Timing System — Hardware (start signal kit)
 
 Companion hardware for the ESP32-C5 gateway (`firmware/esp32_shelly_scanner`, **v13**).
-Adds a **5 V USB strobe light** and a **start beep** played through a **MAX98357 I2S
-amp + speaker** — both USB-powered, in a waterproof box. No 12 V, no power bank, no
-megaphone needed for the start signal.
+Adds a **5 V USB strobe light** and a **start beep** over I2S. Two ways to make the
+beep audible — pick one: a **PCM5102 DAC → 3.5 mm AUX → powered speaker / megaphone**
+(line-out), or a **MAX98357 amp → bare 4–8 Ω speaker** (all-in-one). The light is a
+separate GPIO output, independent of the sound. All USB-powered; no 12 V or power bank
+needed for the start signal.
 
 **No wired start button.** The race start is one of the **Shelly BLU buttons**,
 designated host-side (dashboard re-enroll → sends `STARTER\t<mac>` to the ESP). When
@@ -26,9 +28,10 @@ everything in sync.
 | GPIO | Role | Connects to |
 |---|---|---|
 | **GPIO5** | Light switch (on for 1.5 s at start) | MOSFET module SIG → 5 V USB strobe/LED |
-| **GPIO4** | I2S BCLK (bit clock) | MAX98357 **BCLK** |
-| **GPIO6** | I2S LRC (word clock) | MAX98357 **LRC** |
-| **GPIO10** | I2S DOUT (serial data) | MAX98357 **DIN** |
+| **GPIO4** | I2S BCLK (bit clock) | MAX98357 **BCLK** · PCM5102 **BCK** |
+| **GPIO6** | I2S LRC (word clock) | MAX98357 **LRC** · PCM5102 **LCK** |
+| **GPIO10** | I2S DOUT (serial data) | MAX98357 **DIN** · PCM5102 **DIN** |
+| GND | (PCM5102 only) system clock | PCM5102 **SCK → GND** — uses its internal PLL; firmware sends no MCLK |
 | GND | common ground | ground everything together (critical) |
 | 5V | ESP + amp + light power | USB (power bank USB-A or USB charger) |
 
@@ -38,7 +41,24 @@ on your board before wiring.)
 
 ## Wiring
 
-### Start beep — MAX98357 I2S amp → speaker
+### Start beep — I2S → speaker (pick ONE output board)
+
+The firmware emits the same I2S beep (2 kHz, 1.5 s) regardless; only the output board differs.
+
+**Option A — PCM5102 DAC → 3.5 mm AUX → powered speaker / megaphone** (line-out; what
+you plug into an active speaker's AUX). A DAC only — line level, *cannot* drive a bare speaker.
+```
+ ESP 3.3/5V ─────▶ PCM5102 VIN
+ ESP GND    ─────▶ PCM5102 GND
+ GPIO4      ─────▶ PCM5102 BCK
+ GPIO6      ─────▶ PCM5102 LCK
+ GPIO10     ─────▶ PCM5102 DIN
+ ESP GND    ─────▶ PCM5102 SCK    ⚠️ tie SCK to GND (internal PLL — firmware sends no MCLK)
+ PCM5102 3.5 mm jack ─▶ powered speaker / megaphone AUX-in
+ Back jumpers: XSMT high (un-mute), FMT = I2S. Volume is set on the speaker (no GAIN pin).
+```
+
+**Option B — MAX98357 amp → bare 4–8 Ω speaker** (all-in-one; the amp drives a raw speaker).
 ```
  ESP 5V  ─────────▶ MAX98357 VCC   (2.5–5.5 V)
  ESP GND ─────────▶ MAX98357 GND   (shared ground)
@@ -74,8 +94,9 @@ on your board before wiring.)
 | Part | Purpose | Qty | Link |
 |---|---|---|---|
 | ESP32-C5-DevKitC-1 v1.2 | gateway (have) | 1 | — |
-| MAX98357 I2S 3 W Class-D amp module | start beep (I2S → speaker) | 1 | **ordered** — Amazon B0FKSLXFK6 https://www.amazon.co.uk/dp/B0FKSLXFK6 (3-pack) |
-| 4–8 Ω speaker (3 W+) | start beep output | 1 | https://www.amazon.co.uk/s?k=4+ohm+3w+speaker |
+| **PCM5102 I2S DAC module** (purple GY-PCM5102A) | start beep → 3.5 mm AUX line-out (**DAC route**) | 1 | search "GY-PCM5102A" / "PCM5102 DAC module" |
+| Powered speaker / megaphone w/ 3.5 mm AUX-in | plays the beep (has its own amp + volume) | 1 | any active speaker or AUX megaphone |
+| MAX98357 amp + 4–8 Ω speaker | *alt route:* drive a bare speaker instead of a powered one | 0–1 | Amazon B0FKSLXFK6 https://www.amazon.co.uk/dp/B0FKSLXFK6 |
 | 5 V USB LED strobe / warning light | start flash | 1 | https://www.amazon.co.uk/s?k=5v+usb+strobe+warning+light |
 | Logic-level MOSFET trigger module | GPIO5 switches the 5 V light | 1 | https://www.amazon.co.uk/s?k=mosfet+trigger+driver+module |
 | USB power source (power bank or charger) | powers ESP + amp + light (all 5 V) | 1 | any 5 V/≥2 A USB-A power bank or charger |
