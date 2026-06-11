@@ -44,5 +44,7 @@
   "reviewBeforeExport": true,
   "nameShowFirst": true,
   "nameShowLastInitial": true,
-  "nameShowAge": false
+  "nameShowAge": false,
+  "dolphinRound": "F",
+  "dolphinMeet": 1
 }

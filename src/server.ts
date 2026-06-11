@@ -67,6 +67,10 @@ interface DashConfig {
   name_show_first?: string;        // first name
   name_show_last_initial?: string; // last-name initial only
   name_show_age?: string;          // age
+  // Colorado Dolphin export naming — must match how SPORTSYSTEMS builds the name it
+  // looks for at Results Capture: {meet}-{event}-{heat}{round}{race}.do3
+  dolphin_meet?: string;           // meet number (first field) — match SPORTSYSTEMS' Dolphin meet number
+  dolphin_round?: string;          // round letter: H=Heat (default, club galas), F=Final, S=Semi, O=Swim-Off
   // Per-lane button MACs: mac_lane_{1..6} (primary) + optional mac_lane_{1..6}_b/_c.
   [key: string]: string | undefined;
 }
@@ -77,11 +81,13 @@ interface LanesFile {
   port: string; baud: number; enrolledAt: string; buttons: LaneButton[];
   poolLengthM?: number; collectSplits?: boolean; reviewBeforeExport?: boolean;
   nameShowFirst?: boolean; nameShowLastInitial?: boolean; nameShowAge?: boolean;
+  dolphinMeet?: number; dolphinRound?: string;
 }
 
 let config: DashConfig = {
   pool_length_m: "25", collect_splits: "0", review_before_export: "1",
   name_show_first: "1", name_show_last_initial: "1", name_show_age: "0",
+  dolphin_meet: "1", dolphin_round: "F", // round doesn't affect SS matching (keyed by meet+race); F matches the -000-00F template
 };
 
 // Build the display name from a full roster name + age, per the name-display config.
@@ -126,6 +132,8 @@ function loadLanes(): void {
     if (data.nameShowFirst != null) config.name_show_first = data.nameShowFirst ? "1" : "0";
     if (data.nameShowLastInitial != null) config.name_show_last_initial = data.nameShowLastInitial ? "1" : "0";
     if (data.nameShowAge != null) config.name_show_age = data.nameShowAge ? "1" : "0";
+    if (data.dolphinMeet != null) config.dolphin_meet = String(data.dolphinMeet);
+    if (data.dolphinRound) config.dolphin_round = data.dolphinRound;
   } catch {
     console.warn(`  ⚠️  No ${LANES_PATH} — run "npm run enroll" to register buttons.`);
   }
@@ -164,6 +172,8 @@ function persistLanes(): void {
     nameShowFirst: (config.name_show_first ?? "1") === "1",
     nameShowLastInitial: (config.name_show_last_initial ?? "1") === "1",
     nameShowAge: (config.name_show_age ?? "0") === "1",
+    dolphinMeet: Number(config.dolphin_meet) || 1,
+    dolphinRound: (config.dolphin_round || "H").toUpperCase().slice(0, 1),
   };
   try { writeFileSync(LANES_PATH, JSON.stringify(out, null, 2) + "\n"); } catch { /* best effort */ }
 }
@@ -406,6 +416,8 @@ function configMessage(): Record<string, unknown> {
   msg.name_show_first = config.name_show_first ?? "1";
   msg.name_show_last_initial = config.name_show_last_initial ?? "1";
   msg.name_show_age = config.name_show_age ?? "0";
+  msg.dolphin_meet = config.dolphin_meet ?? "1";
+  msg.dolphin_round = config.dolphin_round ?? "H";
   return msg;
 }
 
@@ -556,6 +568,7 @@ function fullState(): Record<string, unknown> {
   return {
     type: "full_state",
     event: race.eventNum, heat: race.heatNum,
+    race_id: race.raceIdCounter, // Dolphin race number — operator types this into SPORTSYSTEMS at Results Capture
     event_name: eventNames.get(race.eventNum) ?? "",
     state: race.state,
     start_time: race.startWall, elapsed: race.elapsedSeconds(),
@@ -783,11 +796,20 @@ function fmtMMSShh(seconds: number): string {
 // event, CC/CCC heat, X round letter, NNNN race id). Verified against real
 // samples: .do3 uses a 2-digit heat with NO dash before the race id
 // (008-000-00F0001.do3); .do4 uses a 3-digit heat WITH a dash (008-000-001A-0010.do4).
+// Colorado Dolphin round code (the X in the filename) → filename letter + header round name.
+// CTS spec: T=Timed final, P=Prelim, S=Semi-final, F=Final. Swim England club galas run as
+// TIMED FINALS → default T. Must match the round SPORTSYSTEMS holds for the event.
+function dolphinRound(): { letter: string; name: string } {
+  const letter = ((config.dolphin_round || "F").toUpperCase().slice(0, 1)) || "F";
+  const name = ({ T: "Timed Final", F: "Final", S: "Semi-Final", P: "Prelim" } as Record<string, string>)[letter] || "Final";
+  return { letter, name };
+}
+
 function exportBaseName(ext: "do3" | "do4" | "lif"): string {
-  const ds = String(race.datasetNum).padStart(3, "0");
+  const ds = String(Number(config.dolphin_meet) || race.datasetNum).padStart(3, "0");
   const ev = String(race.eventNum).padStart(3, "0");
   const id = String(race.raceIdCounter).padStart(4, "0");
-  const round = "F"; // we only run timed finals
+  const round = dolphinRound().letter; // H=Heat (default) / F=Final / … — matches SPORTSYSTEMS
   if (ext === "do4") {
     const ht = String(race.heatNum).padStart(3, "0");
     return `${ds}-${ev}-${ht}${round}-${id}.do4`;
@@ -832,7 +854,7 @@ function buildDolphin(ext: "do3" | "do4"): string {
   const isDo4 = ext === "do4";
   const numSplits = isDo4 ? race.maxSplits() : 1; // .do3 carries the finish only
   const rows: string[] = [];
-  rows.push(`${race.eventNum};${race.heatNum};${numSplits};Final`); // event;heat;num_splits;round
+  rows.push(`${race.eventNum};${race.heatNum};${numSplits};${dolphinRound().name}`); // event;heat;num_splits;round
   for (let lane = 1; lane <= 10; lane++) {
     const splits = lane <= NUM_LANES ? (race.laneSplits[lane] || []) : [];
     if (isDo4) {
@@ -1026,7 +1048,8 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
       const value = String(msg.value || "");
       const isMac = /^mac_lane_[1-6](_[bc])?$/.test(key) || key === "mac_starter";
       const isSetting = ["pool_length_m", "collect_splits", "review_before_export",
-        "name_show_first", "name_show_last_initial", "name_show_age"].includes(key);
+        "name_show_first", "name_show_last_initial", "name_show_age",
+        "dolphin_meet", "dolphin_round"].includes(key);
       if (isMac || isSetting) {
         config[key] = isMac ? value.toLowerCase() : value;
         rebuildMaps();

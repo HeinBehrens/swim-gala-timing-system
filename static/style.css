@@ -1351,3 +1351,9 @@ body.race-bg-running::before {
 
 /* Invalid time in the review table — flash red, value is reverted. */
 .review-time.invalid { border-color: var(--accent-red) !important; box-shadow: 0 0 0 3px var(--accent-red-dim) !important; }
+
+/* Read-only Dolphin race-number indicator (operator types it into SPORTSYSTEMS). */
+.race-number {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 2.4em; opacity: 0.9; cursor: default; font-variant-numeric: tabular-nums;
+}

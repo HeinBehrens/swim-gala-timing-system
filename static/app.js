@@ -112,6 +112,13 @@ class SwimTimerApp {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', () => this.sendAction('set_config', { key, value: el.checked ? '1' : '0' }));
     }
+    // Sport Systems .do3 export: meet number + round (used in the Dolphin file name).
+    const dMeet = document.getElementById('dolphin-meet');
+    if (dMeet) dMeet.addEventListener('change', () =>
+      this.sendAction('set_config', { key: 'dolphin_meet', value: String(dMeet.value || '1') }));
+    const dRound = document.getElementById('dolphin-round');
+    if (dRound) dRound.addEventListener('change', () =>
+      this.sendAction('set_config', { key: 'dolphin_round', value: dRound.value || 'H' }));
 
     // Review table: confirm writes the .do3 and ends the hold.
     const btnConfirm = document.getElementById('btn-confirm-export');
@@ -579,6 +586,8 @@ class SwimTimerApp {
     // Set event/heat
     if (data.event != null) this.els.eventInput.value = data.event;
     if (data.heat != null) this.els.heatInput.value = data.heat;
+    const rn = document.getElementById('race-number');
+    if (rn) rn.textContent = data.race_id != null ? String(data.race_id) : '—';
     this.setEventName(data.event_name || '');
     this.renderSchedule(data.schedule, data.event, data.heat);
 
@@ -765,6 +774,11 @@ class SwimTimerApp {
       const el = document.getElementById(id);
       if (el) el.checked = (config[key] ?? dflt) === '1';
     }
+    // Sport Systems .do3 export settings.
+    const dMeet = document.getElementById('dolphin-meet');
+    if (dMeet && config.dolphin_meet) dMeet.value = config.dolphin_meet;
+    const dRound = document.getElementById('dolphin-round');
+    if (dRound && config.dolphin_round) dRound.value = config.dolphin_round;
     // Buttons-per-lane is derived from which extra buttons are configured.
     let bpl = 1;
     for (let i = 1; i <= 6; i++) {

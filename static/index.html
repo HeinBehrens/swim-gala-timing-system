@@ -71,6 +71,11 @@
           <label for="heat-number">Heat</label>
           <input type="number" id="heat-number" min="1" max="99" value="1" class="num-input">
         </div>
+        <div class="input-divider"></div>
+        <div class="input-group">
+          <label title="The Dolphin race number — type this into SPORTSYSTEMS at Results Capture">Race #</label>
+          <span id="race-number" class="num-input race-number" title="Type this into SPORTSYSTEMS at Results Capture">—</span>
+        </div>
         <div class="race-state-badge" id="race-state-badge">
           <span class="state-dot"></span>
           <span class="state-text">IDLE</span>
@@ -290,6 +295,26 @@
         <label class="settings-toggle-row" for="name-show-age">
           <input type="checkbox" id="name-show-age"><span>Age</span>
         </label>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Sport Systems export (.do3)</h3>
+        <p class="settings-hint">The Colorado Dolphin file name must match what SPORTSYSTEMS looks for at
+          Results Capture: <code>{meet}-{event}-{heat}{round}{race}.do3</code>. Event &amp; heat come from
+          the start list; set the meet number and round to match your meet.</p>
+        <div class="settings-field">
+          <label for="dolphin-meet">Dolphin meet number</label>
+          <input type="number" id="dolphin-meet" class="text-input" min="1" max="999" step="1" value="1">
+        </div>
+        <div class="settings-field">
+          <label for="dolphin-round">Round</label>
+          <select id="dolphin-round" class="text-input">
+            <option value="T">Timed final — club galas (default)</option>
+            <option value="F">Final</option>
+            <option value="S">Semi-final</option>
+            <option value="P">Prelim</option>
+          </select>
+        </div>
       </div>
 
       <div class="settings-section">
