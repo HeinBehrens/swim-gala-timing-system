@@ -38,7 +38,7 @@ Shelly BLU buttons ──BLE──▶ ESP32-C5 gateway ──USB/Wi-Fi──▶ 
                                                                    │
         ┌──────────────────────────────┬───────────────────────────┘
         ▼                              ▼                            ▼
-  .do4 file import            folder-watch import           live serial feed
+  .do3 file import            folder-watch import           live serial feed
    (manual, today)            (auto, file-based)         (auto, console-style)
         └──────────────────────────────┴───────────────────────────┘
                                    │
@@ -49,16 +49,18 @@ Shelly BLU buttons ──BLE──▶ ESP32-C5 gateway ──USB/Wi-Fi──▶ 
                     Swim England rankings (resultsuploader)
 ```
 
-The timing server already produces **Colorado Dolphin `.do4`** files (one per
-heat), which Sport Systems imports. Everything below is about *how* those
-results cross into Sport Systems with the least manual effort.
+The timing server produces **Colorado Dolphin `.do3`** files (one per heat;
+`.do3` auto-export added in commit #9), which Sport Systems imports. Everything
+below is about *how* those results cross into Sport Systems with the least
+manual effort.
 
 ---
 
 ## Option 1 — File import per heat (works today)
 
-After a heat is finalised, the server writes a `.do4` into the exports folder.
-In Sport Systems you import that file and it matches on event/heat/lane.
+After a heat is finalised, the server writes a `.do3` into the exports folder.
+In Sport Systems you import that file and it matches on **meet + race number**
+(lane→swimmer mapping is then applied from the seeded start list).
 
 - **Setup:** none — this already works.
 - **Per heat:** one "import" action.
@@ -124,7 +126,7 @@ is just how serial "listening" works.
 ### The protocol
 
 Sport Systems' serial interface expects the **Colorado / Dolphin** result
-format. We already generate the Colorado Dolphin **file** format (`.do4`); the
+format. We already generate the Colorado Dolphin **file** format (`.do3`); the
 **serial** form is the same data streamed as a live console would send it. The
 exact byte framing + baud rate (so our emitter matches what Sport Systems parses)
 are being captured from the Colorado/Dolphin timing-console spec and will be
@@ -189,26 +191,34 @@ up. Watch for:
 
 - **Event / heat numbering mismatch.** The numbers in the timing system must
   match the Sport Systems programme exactly. We import the Sport Systems start
-  list (`.txt`) so event/heat/lane numbering is shared from the start.
+  list — the **HSL (Heat Sheet List) `.txt` export** — so event/heat/lane
+  numbering is shared from the start. **Re-import per heat** so late scratches and
+  freshly created swim-offs are reflected.
 - **Empty lanes / No-Time (NT).** A lane with no swimmer or an unfinished swim is
   sent as NT (manual Stop → NT). Make sure these are explicit, not blank, so the
   import doesn't stall waiting for a time.
 - **Disqualifications (DQ).** DQs are entered in Sport Systems against the
   swimmer; the timing feed supplies the *time*, not the DQ decision.
 - **Relays & splits.** Splits are collected every second length (touch at the
-  finish end). Relay take-over and per-leg handling are managed in Sport Systems.
-- **Lane → swimmer mapping.** The timing feed carries event/heat/lane + time;
-  Sport Systems maps lane → seeded swimmer. Keep the start-list import current so
-  that mapping is correct.
+  finish end), **but the `.do3` route carries final times only — splits are not
+  conveyed to Sport Systems.** If splits are ever needed downstream, that requires
+  `.do4` (support in 5.3 unconfirmed). Relay take-over and per-leg handling are
+  managed in Sport Systems.
+- **Lane → swimmer mapping.** The `.do3` is matched on **meet + race number**
+  (not event/heat from the filename); Sport Systems then maps lane → seeded
+  swimmer from the start list. Keep the start-list import current so that mapping
+  is correct.
 
 ---
 
 ## Onward to Swim England
 
-Once results are in Sport Systems, it exports **Lenex** (`.lef`/`.lxf`), which is
-uploaded to Swim England's results system (`resultsuploader.swimming.org`). This
-system deliberately stops at Sport Systems and lets it own the Lenex/Swim England
-step — we do **not** build a direct Lenex exporter.
+Once results are in Sport Systems, it exports **conformant LENEX 3.0** — verified
+by static analysis of `SSMeet53.exe`: it emits the real Lenex element/attribute
+names, uses the 3.0 RANKING→`resultid` place model, and writes uncompressed
+`.lef` into a `LenexRank` output directory (licensed editions only; the export is
+disabled in the Evaluation Edition). That `.lef` is uploaded to
+`resultsuploader.swimming.org`. We deliberately do **not** build a Lenex exporter.
 
 ---
 
@@ -216,7 +226,8 @@ step — we do **not** build a direct Lenex exporter.
 
 **Chosen route: Option 2 — one `.do3` per heat into the CTS Dolphin folder.**
 
-- ✅ Per-heat Dolphin file export exists (`.do4` and, since commit #9, `.do3`).
+- ✅ Per-heat Dolphin file export exists; **`.do3` (the route we use)** added in
+  commit #9. (`.do4` also emitted historically but is not the SPORTSYSTEMS path.)
 - ✅ Confirmed (via binary analysis) SPORTSYSTEMS reads `.do3` from
   `CTSDolphinPath` by race number — Option 2 is viable with no serial work.
 - ⬜ Match the exact Dolphin **race-number filename** SPORTSYSTEMS looks for, and

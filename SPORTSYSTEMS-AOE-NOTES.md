@@ -68,6 +68,9 @@ port at all:
 - Errors to test against: "Can't Locate Dolphin Race File.",
   `ERROR_DO_NOT_HAVE_RACE`, `ERROR_INVALID_RACE_LENGTH`.
 - UI: "Colorado Dolphin Capture", "Colorado Dolphin Database Directory".
+- **No splits.** `.do3` carries final times only. Split times do not cross into
+  SPORTSYSTEMS via this route — that would need `.do4` (and it's unconfirmed
+  whether 5.3 reads `.do4`).
 
 ### Onward → Swim England
 
@@ -112,10 +115,19 @@ the com0com + binary-frame effort given the file path exists.
 
 ## Open items to confirm
 
-- Exact **`.do3` filename convention** SPORTSYSTEMS builds from the Dolphin race
-  number (so our files are found) — verify against our existing exporter naming
-  (`AAA-BBB-CCCX-NNNN`) and a real Dolphin capture.
-- Exact **`.do3` byte layout** SPORTSYSTEMS parses (lane/time/Lap columns) vs.
-  what we emit — confirm splits ("Lap") and 2/3-timer columns line up.
+- **`.do3` filename convention — CONFIRMED.** SPORTSYSTEMS matches
+  `<meet>-000-00F<race>.do3`, e.g. `008-000-00F0004.do3`. The middle segment
+  `-000-00F` is a **fixed literal** (byte-confirmed in the binary; the `F` is
+  ASCII 0x46) — event (`000`), heat (`00`) and round (`F`) are constants and are
+  **not** used for matching. SPORTSYSTEMS keys the file purely on the **3-digit
+  meet number** (`<meet>`) and **4-digit race number** (`<race>`). ⚠️ Our exporter
+  must NOT encode real event/heat/round into the name, or the file won't be found.
+- **`.do3` body layout — STRUCTURE CONFIRMED, semantics pending a sample.**
+  Plain text, read line-by-line (`Line Input #`), **semicolon-delimited**, each
+  data line splits into **exactly 4 fields**, **one row per lane**, **final times
+  only**. (The "Lap"/splits column belongs to the *serial* AOE log model, not the
+  `.do3` file — see family A.) Still to confirm against a real capture: the exact
+  meaning/order of the 4 fields, the time string format, and how a no-swim lane
+  is represented.
 - Whether 5.3 also reads `.do4`.
 - The Colorado **serial** frame (only if we later want the live feed).
