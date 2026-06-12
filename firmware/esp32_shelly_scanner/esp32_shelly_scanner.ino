@@ -66,6 +66,7 @@
 // the host via "STARTER\t<mac>\n" (dashboard re-enrollment just works).
 #define SIGNAL_PIN 5
 #define SIGNAL_MS  1500     // how long the light + beep stay on at start, ms
+#define RGB_LED_PIN 27      // onboard WS2812 RGB LED on the C5-DevKitC-1 — visual start cue
 
 // Start BEEP over I2S → MAX98357 3 W Class-D amp → speaker. The amp is USB-powered
 // (VCC 2.5–5.5 V). Three signal pins (verify against the safe-GPIO list in
@@ -76,6 +77,8 @@
 #define I2S_DOUT   10       // MAX98357 DIN   (serial data)
 #define SAMPLE_RATE 32000   // Hz (16 samples per 2 kHz cycle → clean sine)
 #define TONE_HZ     2000    // start-beep frequency
+#define KEEPALIVE_HZ  90    // faint idle tone — keeps a powered speaker awake so the beep is instant
+#define KEEPALIVE_AMP 80    // idle-tone amplitude (~0.25% FS; raise if the speaker still sleeps, lower if audible)
 // MAX98357 SD pin: leave enabled (tie high / board default) — silence is just the
 // absence of I2S data. GAIN pin sets volume (see HARDWARE.md).
 
@@ -429,8 +432,9 @@ static void serviceTcp() {
 // Fire the start signal: 5 V USB strobe light + I2S beep together. Non-blocking
 // (both auto-off in ioTask after SIGNAL_MS); called when the start is triggered.
 static void fireStartSignal() {
-  digitalWrite(SIGNAL_PIN, HIGH);     // 5 V USB strobe light via MOSFET
-  toneOn = true;                      // audioTask streams the beep to the MAX98357
+  digitalWrite(SIGNAL_PIN, HIGH);       // 5 V USB strobe light via MOSFET
+  neopixelWrite(RGB_LED_PIN, 0, 90, 0); // onboard LED green — visual "signal fired" cue
+  toneOn = true;                        // audioTask streams the beep to the MAX98357
   signalOffMs = millis() + SIGNAL_MS;
 }
 
@@ -439,13 +443,20 @@ static void fireStartSignal() {
 // own task and never stalls press handling. Silence = simply not writing.
 static void audioTask(void *) {
   const int PERIOD = SAMPLE_RATE / TONE_HZ;         // samples per cycle (e.g. 16)
-  const int16_t AMP = 9000;                         // ~27% of full scale
+  const int16_t AMP = 20000;                        // start-beep level (~61% FS — loud)
   int16_t sine[PERIOD];
   for (int i = 0; i < PERIOD; i++)
     sine[i] = (int16_t)(AMP * sinf(2.0f * (float)PI * i / PERIOD));
+  // Keep-alive: a faint low tone streamed continuously when idle so a powered
+  // speaker never auto-sleeps and the start beep is always instant. (Also keeps the
+  // I2S data line active, which stops the PCM5102's idle hum.)
+  const int KA_PERIOD = SAMPLE_RATE / KEEPALIVE_HZ;
+  int16_t ka[KA_PERIOD];
+  for (int i = 0; i < KA_PERIOD; i++)
+    ka[i] = (int16_t)(KEEPALIVE_AMP * sinf(2.0f * (float)PI * i / KA_PERIOD));
   const int FRAMES = 128;
   int16_t buf[FRAMES * 2];                          // stereo interleaved L,R
-  int phase = 0;
+  int phase = 0, kaPhase = 0;
   for (;;) {
     if (toneOn) {
       for (int i = 0; i < FRAMES; i++) {
@@ -454,11 +465,16 @@ static void audioTask(void *) {
         buf[2 * i + 1] = s;                         // right
         if (++phase >= PERIOD) phase = 0;
       }
-      i2s.write((uint8_t *)buf, sizeof(buf));
     } else {
+      for (int i = 0; i < FRAMES; i++) {            // faint keep-alive tone
+        int16_t s = ka[kaPhase];
+        buf[2 * i]     = s;
+        buf[2 * i + 1] = s;
+        if (++kaPhase >= KA_PERIOD) kaPhase = 0;
+      }
       phase = 0;
-      vTaskDelay(pdMS_TO_TICKS(10));
     }
+    i2s.write((uint8_t *)buf, sizeof(buf));         // blocks on DMA → paces at sample rate
   }
 }
 
@@ -472,6 +488,10 @@ static bool parseMac(const String &s, uint8_t out[6]) {
 
 // Handle one inbound command line from the host (serial or TCP).
 static void handleCommand(const String &line) {
+  if (line == "BEEP") {            // host-triggered test signal (dashboard "Test beep")
+    fireStartSignal();
+    return;
+  }
   if (line.startsWith("STARTER\t")) {
     uint8_t m[6];
     if (parseMac(line.substring(8), m)) {
@@ -520,8 +540,9 @@ static void ioTask(void *) {
     }
     pollCommands();                                   // host -> gateway (e.g. STARTER mac)
     if (signalOffMs && (int32_t)(millis() - signalOffMs) >= 0) {  // auto-off the start signal
-      digitalWrite(SIGNAL_PIN, LOW);  // light off
-      toneOn = false;                 // stop the I2S beep
+      digitalWrite(SIGNAL_PIN, LOW);    // light off
+      neopixelWrite(RGB_LED_PIN, 0, 0, 0); // onboard LED off
+      toneOn = false;                   // stop the I2S beep
       signalOffMs = 0;
     }
     serviceTcp();

@@ -2,7 +2,9 @@
 
 A low-cost automatic swim-meet timing system: **Shelly BLU Button1 Tough** lane
 buttons + an **ESP32-C5 gateway**, a Node server with a live dashboard, results
-publishing, and DIY start/finish hardware. Six lane buttons + one start button.
+publishing, and DIY start/finish hardware. Six lane buttons + one start button
+(optionally up to three backup buttons per lane). Feeds **Sport Systems** as a
+Colorado `.do4`; Sport Systems handles the Swim England rankings upload.
 
 ## Timing runs on the ESP32 — not on the host
 
@@ -61,26 +63,49 @@ not cancel and shows up as timing error.
 - **`BUYING.md`** — where to buy the Shelly BLU buttons and the ESP32-C5 board
   (UK / EU / AliExpress, with prices).
 
-## Results export (AOE → meet software)
+## Results export (AOE → Sport Systems → Swim England)
 
-The server writes result files into `exports/` that meet-management software
-imports as **Automatic Officiating Equipment (AOE)**:
+Each finished heat produces a **Colorado Dolphin `.do4`** in `exports/` that
+**Sport Systems** imports as "Colorado Time Systems" AOE. The full pipeline:
 
-- **Colorado Dolphin `.do3`** (final times) and **`.do4`** (with split columns) —
-  imported as "Colorado Time Systems" AOE by **Sport Systems** and Hy-Tek Meet
-  Manager. Format verified against real Dolphin sample files: `event;heat;splits;round`
-  header, 10 lane lines, 16-hex checksum, CRLF. **For this system, target `.do3`**
-  (single finish touch per lane = no splits).
-- **FinishLynx `.lif`** — for photo-finish/Lynx workflows.
+```
+ESP32 buttons → this system → .do4 → Sport Systems → Lenex .lef → Swim England rankings
+            (Colorado AOE times)   (meet management)   (results)   (resultsuploader.swimming.org)
+```
 
-The **`.do3` is exported automatically the moment each heat is finalised** (one
-file per heat, no manual step) — so the meet software can pick it up between heats.
-`.do4`/`.lif` stay manual via the **Export** button or the WebSocket actions
-`export_do3`, `export_do4`, `export_lif`, or `export` (all three). Filenames follow
-the Dolphin convention (`AAA-BBB-CCXNNNN.do3` / `AAA-BBB-CCCX-NNNN.do4`). One caveat: the trailing 16-hex checksum
-is a deterministic placeholder (the real algorithm is undocumented; importers we
-tested skip it) — if an import is rejected, that's the one byte-field to match
-against a vendor sample.
+**This project's job ends at the `.do4`.** Sport Systems seeds the meet (the Lenex
+start list you import — see below) and produces the Lenex results file uploaded to
+Swim England. There is no direct-to-Swim-England export here by design.
+
+The `.do4` layout is verified against real CTS Dolphin sample files and the
+open-source Wahoo! Results parser: an `event;heat;num_splits;round` header, then
+`num_splits` lines per lane — `Lane<n>;t1;t2;t3`, up to three watch/button times
+(blank for an un-pressed watch, `0;0;0` for a no-touch lane) — and a trailing
+16-hex checksum line (importers skip it; ours is a deterministic placeholder).
+Times are total seconds, 2 dp, CRLF. Filenames follow the Dolphin convention
+(`AAA-BBB-CCCX-NNNN.do4`).
+
+`.do3` (finals only) and FinishLynx `.lif` remain available via the WebSocket
+actions `export_do3` / `export_lif`, but are not part of the Sport Systems workflow.
+
+### Review before export
+
+By default a finished heat is **held for review**: the dashboard shows an editable
+table — fix any time, or mark a lane **NT** — and the `.do4` is written only when
+you click **Confirm & Export** (edits after export overwrite the file). Turn this
+off in Settings → *Review & edit results before exporting* for hands-free
+auto-export the instant a heat finalises.
+
+### Splits & up to 3 buttons per lane (optional)
+
+- **Splits** — enable Settings → *Collect per-length splits* and set the pool
+  length. With one finish-end button the swimmer touches the timed wall every
+  **second** length, so touches = distance ÷ (2 × pool length): a 100m in a 25m
+  pool records a 50m split + the finish; a 50m records the finish only. Splits ride
+  in the `.do4` automatically (one line per timed touch).
+- **Up to 3 buttons per lane** — optional backup timers. Re-enroll with *Buttons
+  per lane* = 2 or 3; presses within ~1.5s of each other are consolidated per
+  USA-Swimming rules (median of 3, average of 2). Default stays **1 button/lane**.
 
 ## Running
 
@@ -101,9 +126,11 @@ lives in `roster.sample.csv` / `events.sample.csv`; copy them to
 Pick the event/heat from the **Schedule** dropdown (built from the imported roster;
 `✓` marks heats already run). Then **Prepare** → press the **starter button** (or
 **Start**) → lane buttons record finishes → **Stop** to finalise. Any lane without
-a recorded time is scored **NT**, so empty lanes need no special handling. Once a
-heat is done, clicking **Prepare** again (or **Reset**) auto-advances to the next
-not-yet-completed heat — so you step through the schedule hands-free. The whole background goes
+a recorded time is scored **NT**, so empty lanes need no special handling. When the
+heat finishes it's held for an **editable review** — adjust a time or mark a lane
+NT, then **Confirm & Export** writes the `.do4` (see *Review before export* above).
+Once a heat is done, clicking **Prepare** again (or **Reset**) auto-advances to the
+next not-yet-completed heat — so you step through the schedule hands-free. The whole background goes
 black → **green** (ready) → **yellow** (running) as a deck-visible cue, mirrored on
 `/remote` and `/view`. Settings → **Gateway** has a **Restart ESP32** button (over
 USB serial) for when the board needs a reboot.

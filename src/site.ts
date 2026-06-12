@@ -26,8 +26,27 @@ const ROSTER_PATH = process.env.ROSTER || join(BASE_DIR, "roster.csv");
 const EVENTS_PATH = process.env.EVENTS || join(BASE_DIR, "events.csv");
 const SITE_PATH = process.env.SITE_OUT || join(BASE_DIR, "public", "results.html");
 
-interface RosterEntry { name: string; age: number | null; sex: string; club: string }
+interface RosterEntry { name: string; age: number | null; sex: string; club: string; seed: string }
 interface EventMeta { name: string; stroke: string; distance: string; sex: string; ageGroup: string }
+
+// Read the name-display config (lanes.json) so the PUBLIC page formats names the
+// same way as the live displays (e.g. "Caitlin W" for safeguarding). Surname is
+// never shown in full here — only the first letter, per the toggles.
+function loadNameConfig(): { first: boolean; lastInitial: boolean } {
+  try {
+    const l = JSON.parse(readFileSync(join(SRC_DIR, "lanes.json"), "utf8"));
+    return { first: l.nameShowFirst !== false, lastInitial: l.nameShowLastInitial !== false };
+  } catch { return { first: true, lastInitial: true }; }
+}
+function formatName(full: string, cfg: { first: boolean; lastInitial: boolean }): string {
+  if (!full) return "";
+  const w = full.trim().split(/\s+/);
+  const first = w[0] || "", last = w.length > 1 ? w[w.length - 1]! : "";
+  const parts: string[] = [];
+  if (cfg.first) parts.push(first);
+  if (cfg.lastInitial && last) parts.push(last[0]!.toUpperCase());
+  return parts.join(" ") || first || full;
+}
 
 // Minimal CSV parser (handles quoted fields + embedded commas).
 function parseCsv(text: string): Record<string, string>[] {
@@ -68,6 +87,7 @@ function loadRoster(): Map<string, RosterEntry> {
       age: r.age ? Number(r.age) : null,
       sex: (r.sex || "").toUpperCase(),
       club: r.club || "",
+      seed: r.seed || "",
     });
   }
   return map;
@@ -93,7 +113,7 @@ function loadEvents(): Map<number, EventMeta> {
 export interface ResultRow {
   event: number; heat: number; lane: number;
   time: number | null; finished: boolean; completedAt: string;
-  name: string | null; age: number | null; sex: string | null; club: string | null;
+  name: string | null; age: number | null; sex: string | null; club: string | null; seed: string | null;
 }
 
 export function buildData(): {
@@ -103,6 +123,7 @@ export function buildData(): {
   const races = listResults(1000);
   const roster = loadRoster();
   const eventsMap = loadEvents();
+  const nameCfg = loadNameConfig();
   const results: ResultRow[] = [];
   for (const race of races) {
     for (const ln of race.lanes) {
@@ -110,7 +131,8 @@ export function buildData(): {
       results.push({
         event: race.eventNum, heat: race.heatNum, lane: ln.lane,
         time: ln.time, finished: ln.finished, completedAt: race.completedAt,
-        name: r?.name ?? null, age: r?.age ?? null, sex: r?.sex ?? null, club: r?.club ?? null,
+        name: r ? formatName(r.name, nameCfg) : null, age: r?.age ?? null, sex: r?.sex ?? null,
+        club: r?.club ?? null, seed: r?.seed ?? null,
       });
     }
   }
@@ -226,7 +248,7 @@ function resultTable(rows){
   var withRoster = rows.some(function(r){return r.name;});
   var html = '<table><thead><tr><th class="place">#</th><th>'+(withRoster?"Swimmer":"Lane")+'</th>'
     + (withRoster?'<th>Age</th><th>Club</th>':'')
-    + '<th>Heat</th><th>Lane</th><th style="text-align:right">Time</th></tr></thead><tbody>';
+    + '<th>Heat</th><th>Lane</th><th style="text-align:right">Seed</th><th style="text-align:right">Time</th></tr></thead><tbody>';
   ranked(rows).forEach(function(r){
     var name = r.name ? link("#/swimmer/"+swimmerId(r), esc(r.name)) : ("Lane "+r.lane);
     var place = r.time!=null ? r._place : "";
