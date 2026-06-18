@@ -1,0 +1,32 @@
+---
+name: gateway-wifi-flashing
+description: "How to flash the ESP32-C5 gateway, the 2.4GHz Wi-Fi requirement, and the dashboard Wi-Fi indicator"
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: d0958291-c495-419d-b1c5-e4bfc0f59302
+---
+
+ESP32-C5 gateway (firmware/esp32_shelly_scanner) flashing + Wi-Fi facts, learned 2026-06-02.
+
+**Flashing** (arduino-cli installed; esp32 core 3.3.8):
+- FQBN `esp32:esp32:esp32c5`, and you MUST use `PartitionScheme=huge_app` — default partition is too small (BLE+WiFi sketch is ~1.44MB = 110% of default 1.2MB APP). Full: `arduino-cli compile/upload --fqbn esp32:esp32:esp32c5:PartitionScheme=huge_app firmware/esp32_shelly_scanner`.
+- Stop `npm start` first — it holds the serial port and blocks upload.
+
+**Wi-Fi:** Gateway connects fine only to a **2.4GHz** SSID. The ESP32 scan can't see 5GHz names — `<5GHz-SSID-redacted>` (5GHz) failed "NOT visible in scan"; `<2.4GHz-SSID-redacted>` (2.4GHz) joined. When connected it stands up mDNS + TCP: reachable at `swim-timer.local:3333` (was <lan-ip-redacted>). Verify with `nc -z swim-timer.local 3333`. Run server cordless with `ESP32_TRANSPORT=wifi ESP32_HOST=swim-timer.local`.
+
+**Provisioning** is over BLE (Web Bluetooth) from dashboard Settings — writes `ssid\tpassword` to "SwimTimer-Gateway". No reflash needed to change network.
+
+**Dashboard Wi-Fi dot:** the old dead "HA" indicator was repurposed into a live **Wi-Fi** dot. Firmware re-emits its `WIFI` status line every 10s (loop()) so a host connecting after boot still learns the state — fixes a boot-timing race where the dot stayed off despite Wi-Fi being up. Server parses WIFI lines in `gateway.on("line")` and broadcasts `wifi`/`wifi_detail` in connection_status.
+
+**Port name (FIXED):** macOS bumps the serial port name on replug (`/dev/cu.usbserial-10` → `-110`). Server now AUTO-DETECTS: `Esp32Gateway.detectPort()` scans SerialPort.list() for a USB-serial bridge (CH340/CP210x/FTDI), maps tty.*→cu.*; `DEFAULT_PORT="auto"`. Serial transport also auto-reconnects with backoff and re-detects the port each retry, so unplug/replug recovers on its own — no restart, no `ESP32_PORT=`. Override still possible via `ESP32_PORT=`. See [[ble-capture-bottleneck]].
+
+**⚠️ usbserial vs usbmodem — the "buttons not recognised" trap (2026-06-05):** the board exposes TWO USB serial interfaces — the **UART bridge `/dev/cu.usbserial-10`** (CH340) which carries the firmware's `Serial` PRESS lines, and the **native USB `/dev/cu.usbmodem*`** (USB-JTAG) used only for *flashing*. The firmware's `Serial` goes to UART0 → the bridge, NOT the native USB. If the auto-detect grabs the `usbmodem` port, the server shows "gateway connected" but gets **ZERO presses** (`🔘` log never fires) → looks like dead buttons. The detect regex matched `usbmodem` too. Fix/guard: prefer `usbserial|wchusbserial|SLAB_USBtoUART` over `usbmodem`, or pin `ESP32_PORT=/dev/cu.usbserial-10`. Symptom: presses only start flowing after it reconnects on `usbserial-10`. (Also why direct `cat /dev/cu.usbmodem*` reads returned nothing.)
+
+**Restart-ESP button (2026-06-05):** dashboard Settings → "Gateway (ESP32)" → "Restart ESP32" (confirm popup) sends WS `restart_gateway` → `Esp32Gateway.restart()` pulses DTR/RTS (esptool-style: RTS=EN, DTR=IO0) to reboot into firmware. Serial transport only (no reset line over Wi-Fi/TCP).
+
+**⚠️ Recurrence of the usbserial/usbmodem trap after flashing (2026-06-10):** "the dashboard does not start the race" — root cause was the cable left in the **native usbmodem port after a firmware flash** (flashing uses native, data needs UART). Server logged "gateway connected (serial usbmodem…)" but **zero presses arrived**, yet the ESP still fired its green start-LED locally on the starter press (LED fires from the on-chip BLE match, independent of the serial link — so a working LED proves NOTHING about the host link). Confirmed firmware `Serial`=UART0/GPIO11 → bridge: esp32c5 default `cdc_on_boot=0` (boards.txt), and a direct read of `/dev/cu.usbserial-*` showed `READY` + `PRESS <button-mac-redacted> 1 …`. **Diagnostic added:** `RAW_SERIAL=1 npm start` echoes every non-WIFI line (`🪵 raw:`) in `gateway.on("line")` — if silent after "connected", you're on the wrong port. **Stuck-ESP recovery:** repeated port opens / DTR-RTS toggling can knock the ESP out of run mode (symptom: no green LED on a starter press = app not running) — a full **power-cycle (unplug → wait 3s → replug into the UART port)** recovers it; a software reset may not.
+
+**⭐ BLE/Wi-Fi coexistence — the reconnect-loop fix (2026-06-12):** the C5 has ONE 2.4GHz radio shared by BLE + Wi-Fi. The firmware's BLE scan was `setInterval(100); setWindow(100)` = **100% duty (window==interval) → Wi-Fi got zero airtime and kept disconnecting/reconnecting** in a loop. FIX: make the scan window SHORTER than the interval so there are gaps for Wi-Fi. **`setInterval(100); setWindow(70)` = 70% BLE / 30% Wi-Fi VERIFIED WORKING** — 30s test over Wi-Fi: **0 TCP drops, all 10 presses captured** (every lane + starter). Trade-off: <100% duty adds tiny (tens-of-ms) timing jitter on the rare press whose first advert lands in a scan gap — fine for a club gala; USB-serial (100% duty) stays most precise. If Wi-Fi still flaps, lower the window (e.g. 50). This makes the **Wi-Fi route fully viable**, sidestepping the usbserial/usbmodem cable gremlins (USB = just power). The whole 2026-06-11/12 night was a flaky/charge-only USB cable making both ports enumerate intermittently — board was always fine; Wi-Fi route avoids it.
+
+**Wi-Fi sidesteps the USB-port trap entirely (verified 2026-06-10):** `emitLine()` (firmware ~212) sends every press to **BOTH** `Serial` AND `tcpClient` at once, so Wi-Fi is a first-class transport. Run cordless: `ESP32_TRANSPORT=wifi ESP32_HOST=<lan-ip-redacted> npm start` (or `ESP32_HOST=swim-timer.local`). Connected fine to `<lan-ip-redacted>:3333`. **Timing accuracy is identical to USB** — press+start timestamps are on-chip (µs), server computes `pressMicros−startMicros`, so network jitter does not affect recorded times (only live-clock update speed). Trade-off vs USB: Wi-Fi needs a 2.4GHz SSID + same subnet + no client-isolation, and a blackout at the instant of a touch could drop that press; USB can't silently drop but has the port trap. The default `auto` transport prefers serial and falls back to Wi-Fi — that fallback hanging on slow `swim-timer.local` mDNS added confusion during the 2026-06-10 debug.
