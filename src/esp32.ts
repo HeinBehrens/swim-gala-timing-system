@@ -71,6 +71,7 @@ export class Esp32Gateway extends EventEmitter {
   private preferWifi = false;
   private forced?: "wifi" | "serial"; // runtime override from setTransport(); undefined = auto
   private retryTimer?: ReturnType<typeof setTimeout>;
+  private probeTimer?: ReturnType<typeof setInterval>;
 
   constructor(target: string | GatewayOptions = DEFAULT_PORT) {
     super();
@@ -115,6 +116,27 @@ export class Esp32Gateway extends EventEmitter {
     const wait = this.reconnectMs;
     this.reconnectMs = Math.min(this.reconnectMs * 2, 8000);
     this.retryTimer = setTimeout(() => { this.retryTimer = undefined; fn(); }, wait);
+  }
+
+  // ── Dead-TCP-link watchdog ──
+  // A Wi-Fi gateway that reboots (e.g. the dashboard "Restart ESP32") tears down its
+  // TCP server WITHOUT a RST/FIN, so our client socket lingers as "ESTABLISHED" (a
+  // zombie): no 'close' fires, presses never arrive, and the timer silently stops
+  // working until the server is restarted. The gateway sends nothing over TCP when
+  // idle, so we can't watch for missing data — instead we PROBE: a periodic bare-
+  // newline write. A live gateway ignores it; a rebooted one draws a TCP RST →
+  // 'error'/'close' → reconnect within seconds. (Serial detects port close on its own.)
+  private startProbe(sock: Socket): void {
+    this.stopProbe();
+    const t = setInterval(() => {
+      if (this.socket !== sock) return;           // socket replaced; its own probe runs
+      try { sock.write("\n"); } catch { /* the resulting error/close reconnects */ }
+    }, 5000);
+    t.unref?.();                                   // don't keep the process alive
+    this.probeTimer = t;
+  }
+  private stopProbe(): void {
+    if (this.probeTimer) { clearInterval(this.probeTimer); this.probeTimer = undefined; }
   }
 
   // Resolve the serial device to open, or undefined if none is attached.
@@ -200,6 +222,7 @@ export class Esp32Gateway extends EventEmitter {
       const sock = new Socket();
       this.socket = sock;
       sock.setNoDelay(true);
+      sock.setKeepAlive(true, 5000);
       let opened = false;
       let settled = false;
       const settle = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
@@ -211,6 +234,7 @@ export class Esp32Gateway extends EventEmitter {
         opened = true;
         sock.setTimeout(0);
         this.reconnectMs = 1000;
+        this.startProbe(sock);
         this.emit("open", `wifi ${host}:${tcpPort}`);
         settle(true);
       });
@@ -226,6 +250,7 @@ export class Esp32Gateway extends EventEmitter {
       sock.on("error", () => {}); // handled by the close that follows
       sock.on("close", () => {
         this.socket = undefined;
+        this.stopProbe();
         if (opened) { this.emit("close"); this.scheduleRetry(() => this.connectAuto()); }
         settle(false); // never opened ⇒ let connectAuto fall through to the other transport
       });
@@ -244,11 +269,13 @@ export class Esp32Gateway extends EventEmitter {
     const sock = new Socket();
     this.socket = sock;
     sock.setNoDelay(true);
+    sock.setKeepAlive(true, 5000);
     let opened = false;
     // family:4 — avoid the hanging AAAA lookup on mDNS .local names (see tryTcpAuto).
     sock.connect({ port: tcpPort, host, family: 4 }, () => {
       opened = true;
       this.reconnectMs = 1000;
+      this.startProbe(sock);
       this.emit("open", `wifi ${host}:${tcpPort}`);
     });
     sock.on("data", (chunk: Buffer) => {
@@ -263,6 +290,7 @@ export class Esp32Gateway extends EventEmitter {
     sock.on("error", () => {}); // handled by the close that follows
     sock.on("close", () => {
       this.socket = undefined;
+      this.stopProbe();
       if (opened) this.emit("close");
       else this.emit("error", new Error(`waiting for gateway on Wi-Fi (${host}:${tcpPort})…`));
       this.scheduleRetry(next);
