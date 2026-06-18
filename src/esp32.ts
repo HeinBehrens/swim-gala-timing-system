@@ -54,7 +54,8 @@ export interface GatewayOptions {
   baud?: number;
   host?: string;      // TCP host (Wi-Fi)
   tcpPort?: number;
-  auto?: boolean;     // prefer USB serial; fall back to the gateway on Wi-Fi (host) when no device
+  auto?: boolean;     // try both transports; whichever connects first wins
+  preferWifi?: boolean; // in auto mode, try Wi-Fi (TCP) before USB serial (default: serial first)
 }
 
 export class Esp32Gateway extends EventEmitter {
@@ -67,6 +68,8 @@ export class Esp32Gateway extends EventEmitter {
   private serialBaud = DEFAULT_BAUD;
   private autoHost = DEFAULT_TCP_HOST;
   private autoTcpPort = DEFAULT_TCP_PORT;
+  private preferWifi = false;
+  private forced?: "wifi" | "serial"; // runtime override from setTransport(); undefined = auto
   private retryTimer?: ReturnType<typeof setTimeout>;
 
   constructor(target: string | GatewayOptions = DEFAULT_PORT) {
@@ -77,6 +80,7 @@ export class Esp32Gateway extends EventEmitter {
       this.serialPreferred = opts.path ?? DEFAULT_PORT;
       this.autoHost = opts.host ?? DEFAULT_TCP_HOST;
       this.autoTcpPort = opts.tcpPort ?? DEFAULT_TCP_PORT;
+      this.preferWifi = opts.preferWifi ?? false;
       void this.connectAuto();
     } else if (opts.host) {
       this.openTcp(opts.host, opts.tcpPort ?? DEFAULT_TCP_PORT);
@@ -156,13 +160,76 @@ export class Esp32Gateway extends EventEmitter {
     });
   }
 
-  // ── Auto transport: prefer USB serial, fall back to the gateway on Wi-Fi ──
+  // ── Auto transport: try both, in `preferWifi` order; first to connect wins ──
+  // On disconnect the whole cycle restarts, so the preferred transport is always
+  // reattempted before the fallback. A working link is never preempted — we only
+  // switch transports when the current one drops.
   private async connectAuto(): Promise<void> {
     if (this.closed) return;
-    const target = await this.resolveSerialPath();
-    if (target) { this.openSerialPath(target, () => this.connectAuto()); return; }
-    // No USB device attached — find the gateway over Wi-Fi instead.
-    this.openTcpOnce(this.autoHost, this.autoTcpPort, () => this.connectAuto());
+    const trySerial = async (): Promise<boolean> => {
+      const target = await this.resolveSerialPath();
+      if (!target) return false;
+      this.openSerialPath(target, () => this.connectAuto());
+      return true;
+    };
+    const tryWifi = (): Promise<boolean> => this.tryTcpAuto(this.autoHost, this.autoTcpPort);
+    // A forced transport pins to one (retries on it, no fallback); otherwise try
+    // both in preference order.
+    const order = this.forced === "wifi" ? [tryWifi]
+      : this.forced === "serial" ? [trySerial]
+      : this.preferWifi ? [tryWifi, trySerial] : [trySerial, tryWifi];
+    for (const attempt of order) {
+      if (this.closed) return;
+      if (await attempt()) return; // connected; handlers will restart the cycle on close
+    }
+    // Selected transport(s) unavailable right now — report once and retry the cycle.
+    const wifiWant = `gateway on Wi-Fi (${this.autoHost}:${this.autoTcpPort})`;
+    const want = this.forced === "wifi" ? wifiWant
+      : this.forced === "serial" ? "USB serial"
+      : this.preferWifi ? `${wifiWant} or USB serial` : `USB serial or ${wifiWant}`;
+    this.emit("error", new Error(`waiting for ${want}…`));
+    this.scheduleRetry(() => this.connectAuto());
+  }
+
+  // One Wi-Fi/TCP connect attempt for auto mode. Resolves true once connected (with
+  // data + close handlers wired to restart the auto cycle), or false if it fails to
+  // open within the timeout — so connectAuto() can fall through to the other transport.
+  private tryTcpAuto(host: string, tcpPort: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.closed) { resolve(false); return; }
+      const sock = new Socket();
+      this.socket = sock;
+      sock.setNoDelay(true);
+      let opened = false;
+      let settled = false;
+      const settle = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
+      // Bound the connect attempt so an unreachable host doesn't stall serial fallback.
+      sock.setTimeout(3000, () => { if (!opened) sock.destroy(); });
+      // family:4 — the default dual A/AAAA lookup HANGS on mDNS .local names (the
+      // AAAA query never answers), timing out the whole connect. IPv4 resolves in ms.
+      sock.connect({ port: tcpPort, host, family: 4 }, () => {
+        opened = true;
+        sock.setTimeout(0);
+        this.reconnectMs = 1000;
+        this.emit("open", `wifi ${host}:${tcpPort}`);
+        settle(true);
+      });
+      sock.on("data", (chunk: Buffer) => {
+        this.buf += chunk.toString("utf8");
+        let nl: number;
+        while ((nl = this.buf.indexOf("\n")) >= 0) {
+          const line = this.buf.slice(0, nl);
+          this.buf = this.buf.slice(nl + 1);
+          this.handleLine(line);
+        }
+      });
+      sock.on("error", () => {}); // handled by the close that follows
+      sock.on("close", () => {
+        this.socket = undefined;
+        if (opened) { this.emit("close"); this.scheduleRetry(() => this.connectAuto()); }
+        settle(false); // never opened ⇒ let connectAuto fall through to the other transport
+      });
+    });
   }
 
   // ── TCP transport (Wi-Fi) ──
@@ -178,7 +245,8 @@ export class Esp32Gateway extends EventEmitter {
     this.socket = sock;
     sock.setNoDelay(true);
     let opened = false;
-    sock.connect(tcpPort, host, () => {
+    // family:4 — avoid the hanging AAAA lookup on mDNS .local names (see tryTcpAuto).
+    sock.connect({ port: tcpPort, host, family: 4 }, () => {
       opened = true;
       this.reconnectMs = 1000;
       this.emit("open", `wifi ${host}:${tcpPort}`);
@@ -227,6 +295,28 @@ export class Esp32Gateway extends EventEmitter {
     } else {
       this.emit("line", line); // WIFI banners, ESP boot logs, etc.
     }
+  }
+
+  /**
+   * Force the auto link onto a specific transport at runtime (the dashboard's
+   * Wi-Fi/Serial toggle). "auto" restores the preferWifi order. Drops the current
+   * link and reconnects on the new selection; the close handler reschedules the
+   * cycle, which now honours `forced`. No-op for non-auto gateways.
+   */
+  setTransport(mode: "auto" | "wifi" | "serial"): void {
+    this.forced = mode === "auto" ? undefined : mode;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = undefined; }
+    this.reconnectMs = 1000;
+    if (this.socket) this.socket.destroy();          // close → scheduleRetry(connectAuto)
+    else if (this.port && this.port.isOpen) this.port.close(); // close → scheduleRetry(next)
+    else void this.connectAuto();                    // nothing open — connect now
+  }
+
+  /** The transport currently in use, or undefined when disconnected. */
+  get activeTransport(): "wifi" | "serial" | undefined {
+    if (this.socket && !this.socket.destroyed) return "wifi";
+    if (this.port && this.port.isOpen) return "serial";
+    return undefined;
   }
 
   /** Send a line to the gateway over whichever transport is currently connected. */

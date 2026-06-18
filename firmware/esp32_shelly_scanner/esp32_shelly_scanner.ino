@@ -78,9 +78,25 @@
 #define SAMPLE_RATE 32000   // Hz (16 samples per 2 kHz cycle → clean sine)
 #define TONE_HZ     2000    // start-beep frequency
 #define KEEPALIVE_HZ  90    // faint idle tone — keeps a powered speaker awake so the beep is instant
-#define KEEPALIVE_AMP 80    // idle-tone amplitude (~0.25% FS; raise if the speaker still sleeps, lower if audible)
+#define KEEPALIVE_AMP 0     // idle level: 0 = stream digital SILENCE (I2S stays active so the DAC
+                            // doesn't hiss, but no audible tone). Through a loud amp/PA the old faint
+                            // ~90 Hz tone became an audible hum. Raise to ~20–80 ONLY if a powered
+                            // speaker with auto-standby keeps falling asleep between beeps.
 // MAX98357 SD pin: leave enabled (tie high / board default) — silence is just the
 // absence of I2S data. GAIN pin sets volume (see HARDWARE.md).
+
+// ── Bench audio test tone ─────────────────────────────────────────────────────
+// A loud, CONTINUOUS tone for debugging the I2S → DAC → speaker chain on its own,
+// independent of the start trigger. Drive it over serial/TCP (same channel as BEEP):
+//   "TEST"      → sweeping 300→3000 Hz siren (unmistakable; exercises the whole band)
+//   "TONE 1000" → steady tone at N Hz   ·   "TONE 0" / "TESTOFF" → back to idle
+// Or set TEST_TONE_ON_BOOT 1 to start the siren the instant the board powers up — no
+// host needed: flash, listen. Silence = wiring/DAC fault; siren = audio chain is good.
+#define TEST_TONE_LO    300      // sweep low edge, Hz
+#define TEST_TONE_HI    3000     // sweep high edge, Hz
+#define TEST_SWEEP_S    3.0f     // seconds for one full lo→hi→lo sweep
+#define TEST_TONE_AMP   32000    // test level (~98% FS — max clean output for a pure sine)
+#define TEST_TONE_ON_BOOT 0      // 1 = play the siren immediately at boot (bench test)
 
 // BLE Wi-Fi provisioning GATT service — the dashboard writes credentials here
 // over Web Bluetooth; the ESP saves them to flash (NVS) and joins the network.
@@ -129,6 +145,8 @@ static bool     starterSet    = false;
 static uint32_t signalOffMs   = 0;       // millis() at which to switch the light+beep off (0 = off)
 static I2SClass i2s;                      // MAX98357 start-beep output
 static volatile bool toneOn = false;      // audioTask plays the beep while true
+static volatile bool  testToneOn = false;  // bench test tone (continuous; see TEST_TONE_* above)
+static volatile float testToneHz = 0.0f;   // >0 = steady Hz; 0 = sweeping siren
 
 // ── Wi-Fi / TCP / provisioning ───────────────────────────────────────────────
 static WiFiServer tcpServer(TCP_PORT);
@@ -375,6 +393,9 @@ void setup() {
     Serial.println("WIFI\tI2S init failed");
   }
   xTaskCreate(audioTask, "audio", 4096, nullptr, 1, nullptr);
+#if TEST_TONE_ON_BOOT
+  testToneOn = true;               // bench: play the test siren the moment we power up
+#endif
   // Restore the starter MAC saved by a previous "STARTER" command.
   prefs.begin("cfg", true);
   starterSet = (prefs.getBytes("starter", starterMac, 6) == 6);
@@ -387,8 +408,13 @@ void setup() {
   BLEScan *scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), /*wantDuplicates=*/true);
   scan->setActiveScan(false);
+  // BLE/Wi-Fi coexistence on the single C5 radio: the scan window must be SHORTER
+  // than the interval to leave gaps for Wi-Fi (window==interval = 100% BLE duty
+  // starved Wi-Fi and it kept reconnecting). 75% BLE duty (window 75 / interval 100)
+  // is the middle ground: 80/20 flapped Wi-Fi (verified — dropped within a minute),
+  // 70/30 was rock-solid. ~25% for Wi-Fi. If it still flaps, drop the window to 70.
   scan->setInterval(100);
-  scan->setWindow(100);
+  scan->setWindow(75);
   scan->setDuplicateFilter(false);
 
   // Emit presses + service TCP from a dedicated task (prio 2 > loopTask prio 1)
@@ -443,7 +469,7 @@ static void fireStartSignal() {
 // own task and never stalls press handling. Silence = simply not writing.
 static void audioTask(void *) {
   const int PERIOD = SAMPLE_RATE / TONE_HZ;         // samples per cycle (e.g. 16)
-  const int16_t AMP = 20000;                        // start-beep level (~61% FS — loud)
+  const int16_t AMP = 32000;                        // start-beep level (~98% FS — max clean output for a pure sine)
   int16_t sine[PERIOD];
   for (int i = 0; i < PERIOD; i++)
     sine[i] = (int16_t)(AMP * sinf(2.0f * (float)PI * i / PERIOD));
@@ -457,8 +483,24 @@ static void audioTask(void *) {
   const int FRAMES = 128;
   int16_t buf[FRAMES * 2];                          // stereo interleaved L,R
   int phase = 0, kaPhase = 0;
+  float testPhase = 0.0f, sweepPos = 0.0f;          // bench test-tone accumulators
   for (;;) {
-    if (toneOn) {
+    if (testToneOn) {                               // bench audio test (see TEST_TONE_* above)
+      for (int i = 0; i < FRAMES; i++) {
+        float f = testToneHz;
+        if (f <= 0.0f) {                            // 0 = sweeping siren TEST_TONE_LO↔HI
+          sweepPos += 2.0f / (SAMPLE_RATE * TEST_SWEEP_S);
+          if (sweepPos >= 2.0f) sweepPos -= 2.0f;
+          float tri = sweepPos <= 1.0f ? sweepPos : 2.0f - sweepPos;  // 0→1→0 ramp
+          f = TEST_TONE_LO + tri * (TEST_TONE_HI - TEST_TONE_LO);
+        }
+        int16_t s = (int16_t)(TEST_TONE_AMP * sinf(testPhase));
+        buf[2 * i]     = s;
+        buf[2 * i + 1] = s;
+        testPhase += 2.0f * (float)PI * f / SAMPLE_RATE;  // phase accumulator → click-free sweep
+        if (testPhase >= 2.0f * (float)PI) testPhase -= 2.0f * (float)PI;
+      }
+    } else if (toneOn) {
       for (int i = 0; i < FRAMES; i++) {
         int16_t s = sine[phase];
         buf[2 * i]     = s;                         // left
@@ -490,6 +532,20 @@ static bool parseMac(const String &s, uint8_t out[6]) {
 static void handleCommand(const String &line) {
   if (line == "BEEP") {            // host-triggered test signal (dashboard "Test beep")
     fireStartSignal();
+    return;
+  }
+  if (line == "TEST") {            // bench audio test: continuous sweeping siren
+    testToneHz = 0.0f;
+    testToneOn = true;
+    return;
+  }
+  if (line == "TESTOFF") {         // stop the bench test tone, back to idle keepalive
+    testToneOn = false;
+    return;
+  }
+  if (line.startsWith("TONE ")) {  // steady test tone in Hz, e.g. "TONE 1000"; "TONE 0" = off
+    testToneHz = line.substring(5).toFloat();
+    testToneOn = (testToneHz > 0.0f);
     return;
   }
   if (line.startsWith("STARTER\t")) {

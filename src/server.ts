@@ -38,7 +38,10 @@ import { writeSite } from "./site.js";
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const BASE_DIR = join(SRC_DIR, "..");
 const STATIC_DIR = join(BASE_DIR, "static");
-const EXPORTS_DIR = join(BASE_DIR, "exports");
+// .do3/.lif export directory. Default: local exports/. Set DOLPHIN_DIR to write
+// straight into Sport Systems' CTS Dolphin folder (e.g. the CrossOver bottle's
+// C:\CTSDolphin) so SS captures each heat automatically with no copy step.
+const EXPORTS_DIR = process.env.DOLPHIN_DIR || join(BASE_DIR, "exports");
 const PUBLIC_DIR = join(BASE_DIR, "public");
 const LANES_PATH = process.env.LANES_JSON || join(SRC_DIR, "lanes.json");
 
@@ -380,6 +383,9 @@ let enrollPrevConfig: DashConfig | null = null;
 // ── WebSocket clients + broadcast helpers (app.js message shapes) ────────────
 const clients = new Set<WebSocket>();
 let bleConnected = false;
+// Which transport the server↔gateway link is actually using right now, derived
+// from the gateway's "open"/"close" events — shown on the dashboard.
+let linkTransport: "wifi" | "serial" | null = null;
 // Gateway Wi-Fi link, parsed from the firmware's `WIFI<TAB>...` status lines.
 type WifiState = "connected" | "connecting" | "failed" | "idle" | "unknown";
 let wifiState: WifiState = "unknown";
@@ -576,7 +582,7 @@ function fullState(): Record<string, unknown> {
     review_pending: race.reviewPending,
     review_mode: (config.review_before_export || "1") === "1",
     exported: race.savedToStore,
-    lanes, ble: bleConnected,
+    lanes, ble: bleConnected, transport: linkTransport,
     wifi: wifiState, wifi_detail: wifiDetail, config: cfg,
     schedule: buildSchedule(),
   };
@@ -589,7 +595,7 @@ function broadcastLaneTime(lane: number, time: number, isFinish: boolean, splitI
   broadcast({ type: "lane_time", lane, time: Math.round(time * 1000) / 1000, is_finish: isFinish, split_index: splitIndex });
 }
 function broadcastConnection(): void {
-  broadcast({ type: "connection_status", ble: bleConnected, wifi: wifiState, wifi_detail: wifiDetail });
+  broadcast({ type: "connection_status", ble: bleConnected, transport: linkTransport, wifi: wifiState, wifi_detail: wifiDetail });
 }
 function toast(message: string, level = "info"): void {
   broadcast({ type: "toast", message, level });
@@ -809,6 +815,11 @@ function exportBaseName(ext: "do3" | "do4" | "lif"): string {
   const ds = String(Number(config.dolphin_meet) || race.datasetNum).padStart(3, "0");
   const ev = String(race.eventNum).padStart(3, "0");
   const id = String(race.raceIdCounter).padStart(4, "0");
+  // Genuine CTS Dolphin filename = {meet}-{event}-{heat}{round}{race} with REAL
+  // event/heat/round (confirmed by CTS docs + SwimRankings wiki). The old
+  // SPORTSYSTEMS-AOE-NOTES "-000-00F is a fixed literal" reading was almost certainly
+  // a capture taken while event/heat/round were at defaults (0/0/F). Match the real
+  // Dolphin format. NOTE: SS matching (meet+race) still needs ONE live capture to confirm.
   const round = dolphinRound().letter; // H=Heat (default) / F=Final / … — matches SPORTSYSTEMS
   if (ext === "do4") {
     const ht = String(race.heatNum).padStart(3, "0");
@@ -992,10 +1003,31 @@ function handleAction(ws: WebSocket, msg: Record<string, unknown>): void {
       }
       break;
 
+    case "set_transport": {
+      const mode = String(msg.transport ?? "auto").toLowerCase();
+      if (gatewayRef && (mode === "wifi" || mode === "serial" || mode === "auto")) {
+        gatewayRef.setTransport(mode as "wifi" | "serial" | "auto");
+        toast(mode === "auto" ? "Link: auto (Wi-Fi first)"
+          : `Switching link to ${mode === "wifi" ? "Wi-Fi" : "Serial"}…`, "info");
+      } else {
+        toast("Transport switch failed", "error");
+      }
+      break;
+    }
+
     case "test_beep":
       if (gatewayRef) { gatewayRef.send("BEEP\n"); toast("Test beep sent", "info"); }
       else toast("Test beep failed: no gateway", "error");
       break;
+
+    case "test_tone": {
+      const on = msg.on === true;
+      if (gatewayRef) {
+        gatewayRef.send(on ? "TEST\n" : "TESTOFF\n");
+        toast(on ? "Test tone on" : "Test tone off", "info");
+      } else toast("Test tone failed: no gateway", "error");
+      break;
+    }
 
     case "manual_time": {
       const lane = num(msg.lane, 0);
@@ -1147,13 +1179,14 @@ function main(): void {
 
   // ── ESP32-C5 gateway: presses flow in over USB serial OR Wi-Fi TCP ──
   const transportLabel = USE_WIFI ? `wifi ${TCP_HOST}:${TCP_PORT}`
-    : `USB serial (auto), Wi-Fi fallback → ${TCP_HOST}:${TCP_PORT}`;
+    : `auto: Wi-Fi (${TCP_HOST}:${TCP_PORT}) first, USB serial fallback`;
   const gateway = USE_WIFI
     ? new Esp32Gateway({ host: TCP_HOST, tcpPort: TCP_PORT })
-    : new Esp32Gateway({ auto: true, path: SERIAL_PORT, host: TCP_HOST, tcpPort: TCP_PORT });
+    : new Esp32Gateway({ auto: true, preferWifi: true, path: SERIAL_PORT, host: TCP_HOST, tcpPort: TCP_PORT });
   gatewayRef = gateway;
   gateway.on("open", (where?: string) => {
     bleConnected = true;
+    linkTransport = where?.startsWith("wifi") ? "wifi" : "serial";
     pushStarterMac(); // (re)tell the gateway which button starts the race → siren
     lastErr = ""; // so the next disconnect always logs, even if the message repeats
     // Connected over Wi-Fi/TCP ⇒ the gateway is necessarily on Wi-Fi. (Firmware
@@ -1177,10 +1210,10 @@ function main(): void {
       console.log(`  🪵 raw: ${JSON.stringify(line)}`);
     }
   });
-  gateway.on("close", () => { bleConnected = false; wifiState = "unknown"; wifiDetail = ""; broadcastConnection(); });
+  gateway.on("close", () => { bleConnected = false; linkTransport = null; wifiState = "unknown"; wifiDetail = ""; broadcastConnection(); });
   let lastErr = "";
   gateway.on("error", (e: Error) => {
-    if (bleConnected) { bleConnected = false; broadcastConnection(); }
+    if (bleConnected) { bleConnected = false; linkTransport = null; broadcastConnection(); }
     if (e.message !== lastErr) { console.warn(`  ⚠️  ${e.message}`); lastErr = e.message; }
   });
   gateway.on("press", (ev: PressEvent) => handleButtonPress(ev.mac, ev.button, ev.espMicros));

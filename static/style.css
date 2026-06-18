@@ -237,6 +237,21 @@ body.race-bg-running::before {
   color: var(--text-muted);
 }
 
+/* The Link chip is a button (gateway transport toggle) — strip native button
+   styling so it matches the other indicators, and signal it's clickable. */
+.conn-toggle {
+  background: none;
+  border: none;
+  padding: 0.15rem 0.4rem;
+  margin: 0;
+  font: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.conn-toggle:hover { background: rgba(255, 255, 255, 0.08); }
+.conn-toggle:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+
 .btn-icon {
   display: flex;
   align-items: center;
@@ -580,12 +595,6 @@ body.race-bg-running::before {
   box-shadow: 0 2px 12px rgba(75, 85, 99, 0.2);
 }
 .btn-reset:hover { box-shadow: 0 4px 20px rgba(75, 85, 99, 0.35); }
-
-.btn-export {
-  background: linear-gradient(135deg, #d97706, #f59e0b);
-  box-shadow: 0 2px 12px rgba(255, 179, 71, 0.2);
-}
-.btn-export:hover { box-shadow: 0 4px 20px rgba(255, 179, 71, 0.35); }
 
 .btn-import {
   background: linear-gradient(135deg, #6d28d9, #8b5cf6);
@@ -1038,6 +1047,13 @@ body.race-bg-running::before {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
   border-color: var(--glass-border-hover);
+}
+/* "On" state for toggle sim buttons (e.g. Test tone while the siren is playing). */
+.btn-sim.active,
+.btn-sim.active:hover {
+  background: rgba(255, 176, 32, 0.18);
+  color: #ffb020;
+  border-color: rgba(255, 176, 32, 0.4);
 }
 
 .btn-sim-start {

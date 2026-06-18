@@ -33,6 +33,10 @@
     </div>
     <div class="nav-right">
       <div class="connection-indicators">
+        <div class="conn-dot" id="server-status" data-label="Server" title="Dashboard ↔ server connection — green when receiving live updates">
+          <span class="dot dot-unknown"></span>
+          <span class="conn-label">Server</span>
+        </div>
         <div class="conn-dot" id="ble-status" data-label="BLE" title="Bluetooth LE Connection">
           <span class="dot dot-unknown"></span>
           <span class="conn-label">BLE</span>
@@ -41,6 +45,10 @@
           <span class="dot dot-unknown"></span>
           <span class="conn-label">Wi-Fi</span>
         </div>
+        <button type="button" class="conn-dot conn-toggle" id="transport-status" title="Server ↔ gateway link — click to force Wi-Fi / Serial">
+          <span class="dot dot-unknown"></span>
+          <span class="conn-label">Link: —</span>
+        </button>
       </div>
       <button class="btn-icon settings-toggle" id="settings-toggle-btn" title="Settings" aria-label="Open Settings">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -102,10 +110,6 @@
         <button class="btn btn-reset" id="btn-reset" title="Reset Race (R)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           <span>Reset</span>
-        </button>
-        <button class="btn btn-export" id="btn-export" title="Export results (.do3 for Sport Systems)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Export .do3</span>
         </button>
       </div>
     </section>
@@ -353,9 +357,10 @@
 
       <div class="settings-section">
         <h3 class="settings-section-title">Gateway (ESP32)</h3>
-        <p class="enroll-status">Fire the start signal (strobe + beep) to test the speaker, or reboot the gateway.</p>
+        <p class="enroll-status">Fire the start signal (strobe + beep) to test the speaker, play a continuous test tone to debug the audio chain, or reboot the gateway.</p>
         <div class="settings-row">
           <button class="btn btn-sim" id="btn-test-beep">Test beep</button>
+          <button class="btn btn-sim" id="btn-test-tone">Test tone</button>
           <button class="btn btn-danger" id="btn-restart-esp">Restart ESP32</button>
         </div>
       </div>

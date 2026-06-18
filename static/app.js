@@ -45,7 +45,6 @@ class SwimTimerApp {
       btnStart: document.getElementById('btn-start'),
       btnStop: document.getElementById('btn-stop'),
       btnReset: document.getElementById('btn-reset'),
-      btnExport: document.getElementById('btn-export'),
       dashboard: document.querySelector('.dashboard'),
       laneGrid: document.getElementById('lane-grid'),
       laneCards: document.querySelectorAll('.lane-card'),
@@ -55,8 +54,10 @@ class SwimTimerApp {
       settingsOverlay: document.getElementById('settings-overlay'),
       settingsToggle: document.getElementById('settings-toggle-btn'),
       settingsClose: document.getElementById('settings-close-btn'),
+      serverStatus: document.getElementById('server-status'),
       bleStatus: document.getElementById('ble-status'),
       wifiStatus: document.getElementById('wifi-status'),
+      transportStatus: document.getElementById('transport-status'),
       toastContainer: document.getElementById('toast-container'),
       btnSimStart: document.getElementById('btn-sim-start'),
       btnReenroll: document.getElementById('btn-reenroll'),
@@ -75,7 +76,15 @@ class SwimTimerApp {
     this.els.btnStart.addEventListener('click', () => this.startRace());
     this.els.btnStop.addEventListener('click', () => this.stopRace());
     this.els.btnReset.addEventListener('click', () => this.resetRace());
-    this.els.btnExport.addEventListener('click', () => this.exportResults());
+
+    // Link chip doubles as the gateway transport toggle: click to force the
+    // other transport (Wi-Fi ⇄ Serial); when disconnected, force Wi-Fi.
+    if (this.els.transportStatus) {
+      this.els.transportStatus.addEventListener('click', () => {
+        const next = this.currentTransport === 'wifi' ? 'serial' : 'wifi';
+        this.sendAction('set_transport', { transport: next });
+      });
+    }
 
     // Settings panel
     this.els.settingsToggle.addEventListener('click', () => this.toggleSettings());
@@ -156,6 +165,14 @@ class SwimTimerApp {
     // Test beep — fire the start signal so the operator can check the speaker.
     const btnTestBeep = document.getElementById('btn-test-beep');
     if (btnTestBeep) btnTestBeep.addEventListener('click', () => this.sendAction('test_beep', {}));
+
+    // Test tone — continuous sweeping siren to debug the audio chain; toggles on/off.
+    const btnTestTone = document.getElementById('btn-test-tone');
+    if (btnTestTone) btnTestTone.addEventListener('click', () => {
+      const on = btnTestTone.classList.toggle('active');
+      btnTestTone.textContent = on ? 'Stop tone' : 'Test tone';
+      this.sendAction('test_tone', { on });
+    });
 
     // Restart ESP32 gateway — confirm first (it briefly drops the link).
     if (this.els.btnRestartEsp) {
@@ -322,6 +339,7 @@ class SwimTimerApp {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
+      this.setServerStatus('connected');
       this.showToast('Connected to server', 'success');
       this.sendAction('get_state', {});
     };
@@ -336,6 +354,7 @@ class SwimTimerApp {
     };
 
     this.ws.onclose = () => {
+      this.setServerStatus('disconnected');
       this.showToast('Connection lost — reconnecting...', 'warning');
       this.scheduleReconnect();
     };
@@ -373,7 +392,7 @@ class SwimTimerApp {
         break;
 
       case 'connection_status':
-        this.updateConnectionStatus(data.ble, data.wifi, data.wifi_detail);
+        this.updateConnectionStatus(data.ble, data.wifi, data.wifi_detail, data.transport);
         break;
 
       case 'battery_status':
@@ -620,7 +639,7 @@ class SwimTimerApp {
 
     // Connection statuses
     if (data.ble != null || data.wifi != null) {
-      this.updateConnectionStatus(data.ble, data.wifi, data.wifi_detail);
+      this.updateConnectionStatus(data.ble, data.wifi, data.wifi_detail, data.transport);
     }
 
     // Config
@@ -859,7 +878,6 @@ class SwimTimerApp {
     this.els.btnStart.disabled = s !== 'ready';
     this.els.btnStop.disabled = s !== 'running';
     this.els.btnReset.disabled = s === 'idle';
-    this.els.btnExport.disabled = s !== 'completed';
 
     // Pulsing start button when ready
     this.els.btnStart.classList.toggle('pulsing', s === 'ready');
@@ -1273,7 +1291,42 @@ class SwimTimerApp {
 
   /* ── Connection Status ── */
 
-  updateConnectionStatus(ble, wifi, wifiDetail) {
+  // Dashboard ↔ server WebSocket link. Persistent so a dead dashboard (no live
+  // updates) is obvious at a glance, not just a transient toast.
+  setServerStatus(state) {
+    if (!this.els.serverStatus) return;
+    const dot = this.els.serverStatus.querySelector('.dot');
+    const label = this.els.serverStatus.querySelector('.conn-label');
+    dot.className = 'dot';
+    if (state === 'connected') {
+      dot.classList.add('dot-connected');
+      if (label) label.textContent = 'Server';
+      this.els.serverStatus.title = 'Dashboard receiving live updates from the server';
+    } else {
+      dot.classList.add('dot-disconnected');
+      if (label) label.textContent = 'Server: offline';
+      this.els.serverStatus.title = 'Dashboard NOT receiving updates — reconnecting…';
+    }
+  }
+
+  updateConnectionStatus(ble, wifi, wifiDetail, transport) {
+    if (transport !== undefined && this.els.transportStatus) {
+      this.currentTransport = transport || null;
+      const dot = this.els.transportStatus.querySelector('.dot');
+      const label = this.els.transportStatus.querySelector('.conn-label');
+      dot.className = 'dot';
+      if (transport === 'wifi' || transport === 'serial') {
+        dot.classList.add('dot-connected');
+        const name = transport === 'wifi' ? 'Wi-Fi' : 'Serial';
+        if (label) label.textContent = `Link: ${name}`;
+        const other = transport === 'wifi' ? 'Serial' : 'Wi-Fi';
+        this.els.transportStatus.title = `Gateway via ${name} — click to force ${other}`;
+      } else {
+        dot.classList.add('dot-disconnected');
+        if (label) label.textContent = 'Link: —';
+        this.els.transportStatus.title = 'Gateway not connected — click to force Wi-Fi';
+      }
+    }
     if (ble != null) {
       const dot = this.els.bleStatus.querySelector('.dot');
       dot.className = 'dot';
