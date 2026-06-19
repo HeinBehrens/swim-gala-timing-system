@@ -115,6 +115,11 @@ npm start          # serial → dashboard + /remote over WebSocket
 npm run publish    # build the public results page
 ```
 
+> **On Windows** (e.g. the race-day PC that also runs Sport Systems), see
+> **[WINDOWS.md](WINDOWS.md)** — install Node, `npm install`, then double-click
+> `start.bat` (set `DOLPHIN_DIR` to SS's Colorado Dolphin folder so heats export
+> straight in). No host Bluetooth needed; the gateway handles it.
+
 Provisioning the gateway's Wi-Fi needs Chrome/Edge (Web Bluetooth): Settings →
 **Wi-Fi (Bluetooth setup)** → **Scan networks** lists nearby 2.4 GHz SSIDs (the
 gateway scans on request), then enter the password and **Configure**. Sample data
