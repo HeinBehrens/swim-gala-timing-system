@@ -815,11 +815,13 @@ function exportBaseName(ext: "do3" | "do4" | "lif"): string {
   const ds = String(Number(config.dolphin_meet) || race.datasetNum).padStart(3, "0");
   const ev = String(race.eventNum).padStart(3, "0");
   const id = String(race.raceIdCounter).padStart(4, "0");
-  // Genuine CTS Dolphin filename = {meet}-{event}-{heat}{round}{race} with REAL
-  // event/heat/round (confirmed by CTS docs + SwimRankings wiki). The old
-  // SPORTSYSTEMS-AOE-NOTES "-000-00F is a fixed literal" reading was almost certainly
-  // a capture taken while event/heat/round were at defaults (0/0/F). Match the real
-  // Dolphin format. NOTE: SS matching (meet+race) still needs ONE live capture to confirm.
+  // .do3 — Sport Systems' CTS Dolphin capture (OpenDolphinLog in SSMeet53.exe) opens
+  // exactly `{meet:03}-000-00F{race:04}.do3`, where `-000-00F` is a HARDCODED string
+  // literal (byte-confirmed by RE 2026-06-19: the only occurrence in the binary, sat
+  // next to ".do3" + "Can't Locate Dolphin Race File"). SS keys on meet (first 3) +
+  // race (last 4) ONLY; the middle 7 chars MUST be the literal `000-00F` (NOT real
+  // event/heat/round — those go in the body header, where SS actually reads them).
+  if (ext === "do3") return `${ds}-000-00F${id}.do3`;
   const round = dolphinRound().letter; // H=Heat (default) / F=Final / … — matches SPORTSYSTEMS
   if (ext === "do4") {
     const ht = String(race.heatNum).padStart(3, "0");
